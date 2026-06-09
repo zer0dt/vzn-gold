@@ -1,0 +1,125 @@
+'use client'
+
+import { Camera, Loader2 } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from "@/app/hooks/use-toast"
+
+type CoverImageFormProps = {
+  currentUrl?: string | null
+  action: (formData: FormData) => Promise<void>
+}
+
+export function CoverImageForm({ currentUrl, action }: CoverImageFormProps) {
+  const [isUploading, setIsUploading] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      setPreviewUrl(URL.createObjectURL(file))
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!selectedFile) return
+
+    const formData = new FormData()
+    formData.append('type', 'cover')
+    formData.append('file', selectedFile)
+
+    try {
+      setIsUploading(true)
+      await action(formData)
+      toast({
+        title: "Success",
+        description: "Cover image updated successfully",
+      })
+      // Clean up
+      setSelectedFile(null)
+      setPreviewUrl(null)
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update image",
+      })
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const cancelPreview = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
+    setSelectedFile(null)
+    setPreviewUrl(null)
+    
+    // Reset the file input
+    const fileInput = document.getElementById('cover-input') as HTMLInputElement
+    if (fileInput) {
+      fileInput.value = ''
+    }
+  }
+
+  return (
+    <div 
+      className="relative w-full h-48 group"
+      style={previewUrl || currentUrl ? { 
+        backgroundImage: `url(${previewUrl || currentUrl})`, 
+        backgroundSize: 'cover', 
+        backgroundPosition: 'center' 
+      } : {
+        background: 'linear-gradient(to right, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.1))'
+      }}
+    >
+      <form onSubmit={handleSubmit}>
+        <input 
+          type="file"
+          name="file" 
+          id="cover-input"
+          className="hidden"
+          accept="image/*"
+          onChange={handleFileSelect}
+        />
+        
+        <label 
+          htmlFor="cover-input"
+          className="block absolute inset-0 cursor-pointer z-10"
+        />
+
+        {!selectedFile && (
+          <div 
+            className="absolute inset-0 flex items-end justify-end p-4 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+          >
+            <Camera className="h-6 w-6 text-white" />
+          </div>
+        )}
+
+        {selectedFile && (
+          <div className="absolute bottom-4 right-4 flex items-center gap-2 z-20">
+            <button 
+              type="submit" 
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-sans font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600 shadow-md h-9 px-4"
+              disabled={isUploading}
+            >
+              {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {isUploading ? 'Saving...' : 'Save'}
+            </button>
+            <button 
+              type="button"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-sans font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-orange-300 dark:border-orange-700 bg-white/90 dark:bg-gray-900/90 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30 backdrop-blur-sm h-9 px-4"
+              onClick={cancelPreview}
+              disabled={isUploading}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </form>
+    </div>
+  )
+} 

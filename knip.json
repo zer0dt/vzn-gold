@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "app/**/*.{ts,tsx}",
+    "open-next.config.ts",
+    "utils/**/*.{ts,tsx}"
+  ],
+  "project": [
+    "app/**/*.{ts,tsx}",
+    "src/**/*.{ts,tsx}",
+    "types/**/*.ts",
+    "utils/**/*.{ts,tsx}",
+    "*.ts",
+    "*.mjs"
+  ],
+  "include": [
+    "dependencies",
+    "files",
+    "unlisted"
+  ],
+  "ignoreDependencies": [
+    "eslint",
+    "eslint-config-next",
+    "@babel/core",
+    "@babel/plugin-proposal-class-properties",
+    "@babel/plugin-proposal-decorators",
+    "@babel/plugin-transform-private-methods",
+    "@babel/plugin-transform-private-property-in-object",
+    "@babel/runtime",
+    "babel-loader"
+  ]
+}

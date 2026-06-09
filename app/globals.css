@@ -1,0 +1,359 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent iOS Safari auto-zoom on input focus - requires 16px minimum font size */
+input,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
+input[type="url"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
+input[type="time"],
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+
+@keyframes scale-bounce {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.animate-scale-bounce {
+  animation: scale-bounce 0.5s ease-in-out;
+}
+
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(249, 115, 22, 0.5);
+    border-color: rgba(249, 115, 22, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(249, 115, 22, 0.8);
+    border-color: rgba(249, 115, 22, 0.8);
+  }
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite;
+}
+
+@layer base {
+  :root {
+    --font-vzn-headings: var(--font-vzn-headings-local), var(--font-space-grotesk), sans-serif;
+    --font-post-sans: var(--font-space-grotesk);
+    --font-post-mono: var(--font-ibm-plex-mono);
+    --background: 45 33% 96%;
+    --foreground: 20 14.3% 4.1%;
+    --card: 45 28% 98%;
+    --card-foreground: 20 14.3% 4.1%;
+    --popover: 45 28% 98%;
+    --popover-foreground: 20 14.3% 4.1%;
+    --primary: 24.6 95% 53.1%;
+    --primary-foreground: 60 9.1% 97.8%;
+    --secondary: 43 26% 91%;
+    --secondary-foreground: 24 9.8% 10%;
+    --muted: 43 26% 91%;
+    --muted-foreground: 25 5.3% 44.7%;
+    --accent: 43 30% 91%;
+    --accent-foreground: 24 9.8% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 35 18% 84%;
+    --input: 35 18% 84%;
+    --ring: 24.6 95% 53.1%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+  }
+  .dark {
+    --background: 36 18% 5%;
+    --foreground: 60 9.1% 97.8%;
+    --card: 36 16% 7%;
+    --card-foreground: 60 9.1% 97.8%;
+    --popover: 36 16% 7%;
+    --popover-foreground: 60 9.1% 97.8%;
+    --primary: 20.5 90.2% 48.2%;
+    --primary-foreground: 60 9.1% 97.8%;
+    --secondary: 36 13% 11%;
+    --secondary-foreground: 60 9.1% 97.8%;
+    --muted: 36 13% 11%;
+    --muted-foreground: 38 8% 66%;
+    --accent: 36 15% 12%;
+    --accent-foreground: 60 9.1% 97.8%;
+    --destructive: 0 72.2% 50.6%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 36 12% 17%;
+    --input: 36 12% 17%;
+    --ring: 20.5 90.2% 48.2%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(circle at 18% -12%, hsl(var(--primary) / 0.16), transparent 34rem),
+      radial-gradient(circle at 84% 8%, hsl(38 92% 64% / 0.1), transparent 28rem),
+      linear-gradient(hsl(var(--foreground) / 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--foreground) / 0.018) 1px, transparent 1px);
+    background-position: center, center, 0 0, 0 0;
+    background-size: auto, auto, 3rem 3rem, 3rem 3rem;
+    background-attachment: fixed;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(circle at 18% -12%, hsl(var(--primary) / 0.14), transparent 34rem),
+      radial-gradient(circle at 86% 10%, hsl(38 88% 46% / 0.08), transparent 30rem),
+      linear-gradient(hsl(var(--foreground) / 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--foreground) / 0.014) 1px, transparent 1px);
+  }
+}
+
+.vzn-app-background {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(circle at 18% -12%, hsl(var(--primary) / 0.16), transparent 34rem),
+    radial-gradient(circle at 84% 8%, hsl(38 92% 64% / 0.1), transparent 28rem),
+    linear-gradient(hsl(var(--foreground) / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.018) 1px, transparent 1px);
+  background-position: center, center, 0 0, 0 0;
+  background-size: auto, auto, 3rem 3rem, 3rem 3rem;
+  background-attachment: fixed;
+}
+
+.dark .vzn-app-background {
+  background-image:
+    radial-gradient(circle at 18% -12%, hsl(var(--primary) / 0.14), transparent 34rem),
+    radial-gradient(circle at 86% 10%, hsl(38 88% 46% / 0.08), transparent 30rem),
+    linear-gradient(hsl(var(--foreground) / 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.014) 1px, transparent 1px);
+}
+
+.shooting-star {
+  position: absolute;
+  top: var(--top);
+  left: 0;
+  width: 100px;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    hsl(var(--foreground) / 0.1), 
+    transparent
+  );
+  animation: shooting var(--duration) linear infinite;
+  animation-delay: var(--delay);
+  transform: rotate(-45deg);
+}
+
+@keyframes shooting {
+  0% {
+    transform: translateX(-100%) rotate(-45deg);
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%) rotate(-45deg);
+    opacity: 0;
+  }
+}
+
+.twitter-tweet {
+  margin: 0 auto!important; /* Centers the tweet */
+  border-radius: var(--radius); /* Uses your radius token */
+  overflow: hidden; /* Ensures content stays within border radius */
+}
+
+.twitter-tweet iframe {
+  border-radius: var(--radius) !important;
+  color-scheme: light dark;
+}
+
+.vzn-tweet-embed {
+  background: hsl(var(--muted) / 0.35);
+  color-scheme: light;
+}
+
+.dark .vzn-tweet-embed {
+  color-scheme: dark;
+}
+
+.vzn-tweet-embed :where(.react-tweet-theme) {
+  --tweet-container-margin: 0;
+  --tweet-font-family: var(--font-post-sans), Arial, Helvetica, sans-serif;
+  --tweet-bg-color: hsl(var(--muted) / 0.35);
+  --tweet-bg-color-hover: hsl(var(--muted) / 0.65);
+  --tweet-border: 1px solid hsl(var(--border) / 0.85);
+  --tweet-font-color: hsl(var(--foreground));
+  --tweet-font-color-secondary: hsl(var(--muted-foreground));
+  --tweet-twitter-icon-color: hsl(var(--foreground));
+  --tweet-color-blue-secondary: hsl(var(--primary));
+  --tweet-color-blue-secondary-hover: hsl(var(--primary) / 0.12);
+  --tweet-skeleton-gradient: linear-gradient(
+    270deg,
+    hsl(var(--background)),
+    hsl(var(--muted)),
+    hsl(var(--muted)),
+    hsl(var(--background))
+  );
+  --tweet-quoted-bg-color-hover: hsl(var(--muted) / 0.5);
+  background-color: hsl(var(--muted) / 0.35) !important;
+}
+
+.dark .vzn-tweet-embed :where(.react-tweet-theme) {
+  --tweet-bg-color: hsl(var(--background));
+  --tweet-bg-color-hover: hsl(var(--muted) / 0.36);
+  --tweet-border: 1px solid hsl(var(--border) / 0.72);
+  --tweet-skeleton-gradient: linear-gradient(
+    270deg,
+    hsl(var(--background)),
+    hsl(var(--muted)),
+    hsl(var(--muted)),
+    hsl(var(--background))
+  );
+  --tweet-quoted-bg-color-hover: hsl(var(--foreground) / 0.04);
+  --tweet-verified-blue-color: hsl(var(--foreground));
+  background-color: hsl(var(--background)) !important;
+}
+
+/* Add KaTeX styles for dark mode */
+.dark {
+  --katex-color: white;
+}
+
+.prose .math {
+  overflow-x: auto;
+}
+
+.prose .math-display {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Add any additional custom styles below */
+
+/* Utility to hide scrollbars */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Style embedded tweet avatar */
+.tweet-header_avatarSquare__uIUBO img {
+  border-radius: 9999px; /* Make the image circular */
+}
+
+/* Align items in tweet header */
+.tweet-header_header__CXzdi {
+  align-items: center; /* Align items to the center vertically */
+}
+
+/* Override default prose image top margin */
+.prose :where(img):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0 !important; /* Remove top margin */
+}
+
+/* Shimmer animation for modern progress bars */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+/* Gradient shimmer for text (animated background-position) */
+@keyframes gradient-x {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.animate-gradient-x {
+  background-size: 200% 100%;
+  animation: gradient-x 3s linear infinite;
+}
+
+.react-tweet-theme {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+@keyframes pulse-orange {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.7); /* amber-400 with 70% opacity */
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0); /* amber-400 with 0% opacity */
+  }
+}
+
+
+/* Subtle pulsing glow for text elements (uses theme primary color) */
+@keyframes text-glow {
+  0%, 100% {
+    text-shadow:
+      0 0 3px hsl(var(--primary) / 0.35),
+      0 0 6px hsl(var(--primary) / 0.2),
+      0 0 10px hsl(var(--primary) / 0.12);
+  }
+  50% {
+    text-shadow:
+      0 0 6px hsl(var(--primary) / 0.5),
+      0 0 12px hsl(var(--primary) / 0.3),
+      0 0 18px hsl(var(--primary) / 0.18);
+  }
+}
+
+.text-glow {
+  animation: text-glow 3.2s ease-in-out infinite;
+}
