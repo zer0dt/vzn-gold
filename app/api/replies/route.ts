@@ -81,14 +81,17 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { txid, post_txid, user_id, content } = await request.json()
+    const { txid, post_txid, user_id, content, has_image } = await request.json()
+    const finalContent = typeof content === 'string' ? content.trim() : ''
+    const hasImage = Boolean(has_image)
 
-    if (!txid || !post_txid || !user_id || !content) {
+    if (!txid || !post_txid || !user_id || (!finalContent && !hasImage)) {
       console.warn('POST /api/replies - Missing required fields:', {
         txid: !!txid,
         post_txid: !!post_txid,
         user_id: !!user_id,
-        content: !!content
+        content: !!finalContent,
+        has_image: hasImage
       })
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
@@ -124,7 +127,8 @@ export async function POST(request: Request) {
           txid,
           post_txid,
           user_id,
-          content
+          content: finalContent,
+          has_image: hasImage
         }
       ])
       .select(`

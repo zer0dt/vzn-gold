@@ -1,7 +1,7 @@
 import type React from 'react';
 import Image from 'next/image';
 import { X } from 'lucide-react';
-import { Dialog, DialogContent } from "@/app/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/app/components/ui/dialog";
 
 type ImageFullscreenDialogProps = {
   isOpen: boolean;
@@ -26,6 +26,7 @@ export const ImageFullscreenDialog = ({ isOpen, onOpenChange, imageUrl }: ImageF
         className="max-w-[100vw] max-h-[100vh] w-screen h-screen p-0 border-0 bg-black/90 flex items-center justify-center z-[110]"
         onClick={handleClose} // Close when clicking the background overlay
       >
+        <DialogTitle className="sr-only">Post attachment</DialogTitle>
         {/* Close Button */}
         <button
           aria-label="Close fullscreen image view"

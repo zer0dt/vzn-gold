@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
+import { getPostImageUrl } from '@/app/lib/post-image-utils';
 import type { PostProps } from './postTypes';
 
 type PostImageProps = {
@@ -14,9 +15,11 @@ type PostImageProps = {
  */
 export const PostImage = React.memo(({ post, onImageClick }: PostImageProps) => {
   const imageUrl = useMemo(() => {
-    if (!post.hasImage) return null;
-    const outputIndex = (post.content && post.content.trim() !== '') ? '_1' : '_0';
-    return `https://ordinals.gorillapool.io/content/${post.txid}${outputIndex}`;
+    return getPostImageUrl({
+      txid: post.txid,
+      content: post.content,
+      hasImage: post.hasImage,
+    });
   }, [post.txid, post.hasImage, post.content]);
 
   const [isImageLoading, setIsImageLoading] = useState(!!imageUrl);
@@ -48,7 +51,7 @@ export const PostImage = React.memo(({ post, onImageClick }: PostImageProps) => 
   return (
     <div className="mt-2">
       <div
-        className="relative overflow-hidden rounded-2xl border border-border/60 cursor-pointer"
+        className="relative cursor-pointer"
         onClick={handleContainerClick}
       >
         {/* Image */}
@@ -57,7 +60,7 @@ export const PostImage = React.memo(({ post, onImageClick }: PostImageProps) => 
           alt="Post attachment"
           width={1200} // Provide desired render size
           height={675} // Maintain aspect ratio
-          className="w-full h-auto max-h-[70vh] object-cover block"
+          className="mx-auto block h-auto w-auto max-h-[420px] max-w-full rounded-2xl object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]"
           loading="lazy"
           unoptimized // If Gorilla Pool doesn't optimize or you don't want Next optimization
           onLoad={handleImageLoad}

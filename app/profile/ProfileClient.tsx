@@ -42,9 +42,9 @@ export default function ProfileClient({ profile, userId, updateProfileImage }: P
 
       <div className="max-w-2xl mx-auto">
         <div className="px-6 sm:px-6">
-          <div className="relative -mt-16">
+          <div className="relative -mt-16 pointer-events-none">
             {/* Avatar Form */}
-            <div className="inline-block">
+            <div className="inline-block pointer-events-auto">
               <ProfileImageForm
                 type="avatar"
                 currentUrl={profile.avatar_url}
@@ -54,7 +54,7 @@ export default function ProfileClient({ profile, userId, updateProfileImage }: P
             </div>
 
             {/* Username and Join Date */}
-            <div className="mt-2">
+            <div className="mt-2 pointer-events-auto">
               <div className="flex items-center gap-1.5">
                 <div className="font-vzn-headings text-lg font-normal tracking-tight">
                   {profile.username || `User ${userId.substring(0, 6)}...`}

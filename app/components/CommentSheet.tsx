@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { ImagePlus, Loader2, X } from "lucide-react";
+import Image from "next/image";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Avatar,
@@ -20,6 +21,13 @@ import { toast } from "@/app/hooks/use-toast";
 import { useWallet } from "@/app/hooks/use-wallet";
 import { getOwnerKey, signWithAIP } from "@/app/lib/aip-signer";
 import { wocTxUrl } from "@/app/lib/explorer";
+import {
+  formatImageSize,
+  getPostImageUrl,
+  POST_IMAGE_INPUT_ACCEPT,
+  preparePostImage,
+  type PreparedPostImage,
+} from "@/app/lib/post-image-utils";
 import { replyQueryKeys } from "@/app/lib/query-keys";
 import {
   clearOptimisticReply,
@@ -43,6 +51,8 @@ type Reply = {
   post_txid: string;
   user_id: string;
   content: string;
+  has_image?: boolean;
+  hasImage?: boolean;
   created_at: string;
   profile?: {
     username?: string | null;
@@ -97,9 +107,13 @@ export default function CommentSheet({
     () => commentDrafts.get(postTxid) || "",
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImageProcessing, setIsImageProcessing] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<PreparedPostImage | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const commentsContainerRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   // Extract the query function to avoid duplication
@@ -151,6 +165,14 @@ export default function CommentSheet({
     };
   }, [isSubmitting]);
 
+  useEffect(() => {
+    return () => {
+      if (selectedImage?.previewUrl) {
+        URL.revokeObjectURL(selectedImage.previewUrl);
+      }
+    };
+  }, [selectedImage?.previewUrl]);
+
   // Note: Realtime updates for replies are handled by feed-level subscriptions,
   // which keep the ['replies', postTxid] cache deduped across mounted surfaces.
 
@@ -161,8 +183,66 @@ export default function CommentSheet({
     commentDrafts.set(postTxid, newValue);
   };
 
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setImageError(null);
+    setIsImageProcessing(true);
+
+    try {
+      const preparedImage = await preparePostImage(file);
+      setSelectedImage((previousImage) => {
+        if (previousImage?.previewUrl) {
+          URL.revokeObjectURL(previousImage.previewUrl);
+        }
+        return preparedImage;
+      });
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "Could not prepare image.");
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
+    } finally {
+      setIsImageProcessing(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    if (selectedImage?.previewUrl) {
+      URL.revokeObjectURL(selectedImage.previewUrl);
+    }
+    setSelectedImage(null);
+    setImageError(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
+
+  const resetImageState = () => {
+    if (selectedImage?.previewUrl) {
+      URL.revokeObjectURL(selectedImage.previewUrl);
+    }
+    setSelectedImage(null);
+    setImageError(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!comment.trim() || isSubmitting || !user) {
+    const finalComment = comment.trim();
+    const imagePayload = selectedImage
+      ? {
+          dataBase64: selectedImage.dataBase64,
+          mediaType: selectedImage.mediaType,
+          size: selectedImage.size,
+        }
+      : undefined;
+
+    if ((!finalComment && !imagePayload) || isSubmitting || !user) {
       if (!user) {
         toast({
           title: "Login Required",
@@ -192,7 +272,7 @@ export default function CommentSheet({
       let signerAddress: string | undefined;
 
       if (ownerKeyWif) {
-        const aipData = signWithAIP(comment, ownerKeyWif, postTxid);
+        const aipData = signWithAIP(finalComment, ownerKeyWif, postTxid, imagePayload, "reply");
         if (aipData) {
           aipSignature = aipData.signature;
           signerAddress = aipData.address;
@@ -223,6 +303,7 @@ export default function CommentSheet({
           content: comment,
           type: "reply",
           replyToTxid: postTxid,
+          image: imagePayload,
           aipSignature,
           signerAddress,
         }),
@@ -254,7 +335,8 @@ export default function CommentSheet({
           txid,
           post_txid: postTxid,
           user_id: user.id,
-          content: comment,
+          content: finalComment,
+          has_image: Boolean(imagePayload),
         }),
       });
 
@@ -272,7 +354,8 @@ export default function CommentSheet({
         txid,
         post_txid: postTxid,
         user_id: user.id,
-        content: comment,
+        content: finalComment,
+        has_image: Boolean(imagePayload),
         created_at: new Date().toISOString(),
         profile: profileData || {
           username: null,
@@ -299,6 +382,7 @@ export default function CommentSheet({
       setProgress(100);
       setElapsedSeconds(0);
       setComment("");
+      resetImageState();
       commentDrafts.delete(postTxid);
       onReplyAdded?.();
 
@@ -326,8 +410,15 @@ export default function CommentSheet({
   const PRIMARY_CTA =
     "inline-flex items-center justify-center gap-2 rounded-full border-2 border-amber-400 bg-inherit px-6 py-3 text-sm font-semibold text-foreground transition-colors duration-200 ease-in-out animate-pulse-orange hover:bg-amber-400/10 focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400/45 disabled:pointer-events-none disabled:opacity-60";
 
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      resetImageState();
+      onClose();
+    }
+  };
+
   return (
-    <Sheet open={isOpen} onOpenChange={onClose}>
+    <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent
         side="bottom"
         className="z-[200] mx-auto flex h-[80vh] w-full max-w-[600px] flex-col overflow-hidden rounded-t-2xl border-t border-border/60 bg-background/95 p-0 shadow-[0_0_0_1px_rgba(245,158,11,0.2),0_-20px_50px_-20px_rgba(0,0,0,0.55)] backdrop-blur-xl sm:h-[70vh]"
@@ -417,6 +508,30 @@ export default function CommentSheet({
                     <p className="mt-1 text-[15px] leading-snug text-foreground/90">
                       {reply.content}
                     </p>
+                    {(() => {
+                      const imageUrl = getPostImageUrl({
+                        txid: reply.txid,
+                        content: reply.content,
+                        hasImage: reply.hasImage ?? reply.has_image,
+                      });
+
+                      if (!imageUrl) {
+                        return null;
+                      }
+
+                      return (
+                        <div className="mt-2 overflow-hidden rounded-2xl border border-border/60">
+                          <Image
+                            src={imageUrl}
+                            alt="Reply attachment"
+                            width={900}
+                            height={506}
+                            className="max-h-80 w-full object-cover"
+                            unoptimized
+                          />
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ))
@@ -426,7 +541,7 @@ export default function CommentSheet({
 
         <div className="relative border-t border-border/60 bg-background/60 px-6 pb-6 pt-4 font-post-sans backdrop-blur">
           <Textarea
-            placeholder="Write a reply…"
+            placeholder={selectedImage ? "Add a caption…" : "Write a reply…"}
             value={comment}
             onChange={handleCommentChange}
             className="min-h-[84px] resize-none rounded-xl border-border/70 bg-background/70 font-post-sans backdrop-blur focus-visible:border-amber-400/60 focus-visible:ring-amber-400/30"
@@ -435,14 +550,72 @@ export default function CommentSheet({
             autoCorrect="off"
             autoCapitalize="off"
           />
-          <div className="mt-3 flex items-center justify-end">
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept={POST_IMAGE_INPUT_ACCEPT}
+            className="hidden"
+            onChange={handleImageSelect}
+            disabled={isSubmitting || isImageProcessing || !user || !isWalletReady}
+          />
+
+          {selectedImage && (
+            <div className="mt-3 overflow-hidden rounded-xl border border-border/60 bg-background/60">
+              <div className="relative flex max-h-48 items-center justify-center bg-muted/30 p-2">
+                <Image
+                  src={selectedImage.previewUrl}
+                  alt="Selected reply attachment"
+                  width={selectedImage.width}
+                  height={selectedImage.height}
+                  className="block h-auto max-h-44 w-auto max-w-full rounded-xl ring-1 ring-black/10 drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]"
+                  unoptimized
+                />
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="absolute right-2 top-2 rounded-full bg-background/85 p-1 text-foreground shadow backdrop-blur transition hover:bg-background"
+                  aria-label="Remove selected image"
+                  disabled={isSubmitting}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="border-t border-border/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {selectedImage.mediaType.replace("image/", "")} · {formatImageSize(selectedImage.size)} / 1 MB
+              </div>
+            </div>
+          )}
+
+          {imageError && (
+            <p className="mt-2 text-sm text-destructive">{imageError}</p>
+          )}
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={isSubmitting || isImageProcessing || !user || !isWalletReady}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-amber-400/10 hover:text-amber-600 disabled:pointer-events-none disabled:opacity-60 dark:hover:text-amber-300"
+              aria-label="Add image"
+              title="Add image"
+            >
+              {isImageProcessing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ImagePlus className="h-4 w-4" />
+              )}
+            </button>
             <button
               type="button"
               onClick={handleSubmit}
               disabled={
-                isSubmitting || !user || !isWalletReady || !comment.trim()
+                isSubmitting ||
+                isImageProcessing ||
+                !user ||
+                !isWalletReady ||
+                (!comment.trim() && !selectedImage)
               }
-              className={`${PRIMARY_CTA} min-w-[180px]`}
+              className={`${PRIMARY_CTA} min-w-[120px] sm:min-w-[180px]`}
             >
               <span className="flex items-center justify-center gap-2">
                 {isSubmitting ? (

@@ -103,15 +103,15 @@ export function CoverImageForm({ currentUrl, action }: CoverImageFormProps) {
           <div className="absolute bottom-4 right-4 flex items-center gap-2 z-20">
             <button 
               type="submit" 
-              className="inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-sans font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600 shadow-md h-9 px-4"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-amber-300/60 bg-amber-500 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-black shadow-[0_2px_10px_rgba(0,0,0,0.35)] transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 disabled:pointer-events-none disabled:opacity-50"
               disabled={isUploading}
             >
               {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {isUploading ? 'Saving...' : 'Save'}
+              {isUploading ? 'Saving' : 'Save'}
             </button>
             <button 
               type="button"
-              className="inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-sans font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-orange-300 dark:border-orange-700 bg-white/90 dark:bg-gray-900/90 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30 backdrop-blur-sm h-9 px-4"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-black/75 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/50 disabled:pointer-events-none disabled:opacity-50"
               onClick={cancelPreview}
               disabled={isUploading}
             >

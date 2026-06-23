@@ -63,6 +63,8 @@ export type Reply = {
   post_txid: string
   user_id: string
   content: string
+  has_image?: boolean
+  hasImage?: boolean
   created_at: string
   profiles?: Profile
 }

@@ -11,7 +11,7 @@ import {
 } from "@/app/components/ui/sheet";
 import { Button } from "@/app/components/ui/button";
 import { Textarea } from "@/app/components/ui/textarea";
-import { Loader2 } from "lucide-react";
+import { ImagePlus, Loader2, X } from "lucide-react";
 import { useToast } from "@/app/hooks/use-toast";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -32,6 +32,12 @@ import { feedQueryKeys } from '@/app/lib/query-keys';
 import { createOptimisticPost, prependPostToInfiniteData, type HydratedPost } from '@/app/lib/supabase/posts';
 import { getProfileByUserId } from '@/app/lib/supabase/profiles';
 import { formatProgressElapsedTime, getTransactionProgressLabel } from '@/app/lib/transaction-progress';
+import {
+  formatImageSize,
+  POST_IMAGE_INPUT_ACCEPT,
+  preparePostImage,
+  type PreparedPostImage,
+} from '@/app/lib/post-image-utils';
 
 // URL regex pattern
 const URL_PATTERN = /https?:\/\/[^\s<]+[^<.,:;"')\]\s]/g;
@@ -138,6 +144,9 @@ export default function PostSheet({
   const [content, setContent] = useState("");
   const [isPreview, setIsPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isImageProcessing, setIsImageProcessing] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<PreparedPostImage | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const { toast } = useToast();
@@ -149,17 +158,27 @@ export default function PostSheet({
 
   // Add ref for the textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   // Add ref for the sheet content
   const sheetContentRef = useRef<HTMLDivElement>(null);
   const previousIsOpenRef = useRef(false);
 
   // Function to reset component state
   const resetState = () => {
+    if (selectedImage?.previewUrl) {
+      URL.revokeObjectURL(selectedImage.previewUrl);
+    }
     setContent("");
     setIsPreview(false);
     setIsLoading(false);
+    setIsImageProcessing(false);
+    setSelectedImage(null);
+    setImageError(null);
     setProgress(0);
     setElapsedSeconds(0);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
   };
 
   // Show toast when sheet opens without wallet
@@ -229,6 +248,52 @@ export default function PostSheet({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    return () => {
+      if (selectedImage?.previewUrl) {
+        URL.revokeObjectURL(selectedImage.previewUrl);
+      }
+    };
+  }, [selectedImage?.previewUrl]);
+
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setImageError(null);
+    setIsImageProcessing(true);
+
+    try {
+      const preparedImage = await preparePostImage(file);
+      setSelectedImage((previousImage) => {
+        if (previousImage?.previewUrl) {
+          URL.revokeObjectURL(previousImage.previewUrl);
+        }
+        return preparedImage;
+      });
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "Could not prepare image.");
+      if (imageInputRef.current) {
+        imageInputRef.current.value = "";
+      }
+    } finally {
+      setIsImageProcessing(false);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    if (selectedImage?.previewUrl) {
+      URL.revokeObjectURL(selectedImage.previewUrl);
+    }
+    setSelectedImage(null);
+    setImageError(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
+
   // Modified useEffect with mobile-specific fixes
   useEffect(() => {
     if (isOpen && textareaRef.current) {
@@ -296,11 +361,18 @@ export default function PostSheet({
     }
 
     const finalContent = content.trim();
+    const imagePayload = selectedImage
+      ? {
+          dataBase64: selectedImage.dataBase64,
+          mediaType: selectedImage.mediaType,
+          size: selectedImage.size,
+        }
+      : undefined;
 
-    if (!finalContent) {
+    if (!finalContent && !imagePayload) {
       toast({
         variant: "destructive",
-        description: "Please enter some content to post.",
+        description: "Add text or an image before posting.",
       });
       return;
     }
@@ -317,7 +389,7 @@ export default function PostSheet({
       let signerAddress: string | undefined;
 
       if (ownerKeyWif) {
-        const aipData = signWithAIP(finalContent, ownerKeyWif);
+        const aipData = signWithAIP(finalContent, ownerKeyWif, undefined, imagePayload, 'post');
         if (aipData) {
           aipSignature = aipData.signature;
           signerAddress = aipData.address;
@@ -346,6 +418,7 @@ export default function PostSheet({
         body: JSON.stringify({
           content: finalContent,
           type: 'post',
+          image: imagePayload,
           aipSignature,
           signerAddress
         })
@@ -370,7 +443,7 @@ export default function PostSheet({
         body: JSON.stringify({
           content: finalContent, // Use finalContent
           txid,
-          has_image: false
+          has_image: Boolean(imagePayload)
         }),
       });
 
@@ -386,6 +459,7 @@ export default function PostSheet({
           content: finalContent,
           userId: user.id,
           profile: profileData,
+          hasImage: Boolean(imagePayload),
         });
 
         queryClient.setQueryData<InfiniteData<HydratedPost[], number>>(
@@ -562,7 +636,7 @@ export default function PostSheet({
             <div className="relative">
               <Textarea
                 ref={textareaRef}
-                placeholder="What's happening?"
+                placeholder={selectedImage ? "Add a caption…" : "What's happening?"}
                 value={content}
                 onChange={(e) => {
                   const nextValue = e.target.value;
@@ -600,6 +674,48 @@ export default function PostSheet({
           )}
           </div>
 
+          <div className="space-y-2">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept={POST_IMAGE_INPUT_ACCEPT}
+              className="hidden"
+              onChange={handleImageSelect}
+              disabled={isLoading || isImageProcessing}
+            />
+
+            {selectedImage && (
+              <div className="relative overflow-hidden rounded-xl border border-border/60 bg-background/60">
+                <div className="relative flex max-h-64 items-center justify-center bg-muted/30 p-2">
+                  <Image
+                    src={selectedImage.previewUrl}
+                    alt="Selected post attachment"
+                    width={selectedImage.width}
+                    height={selectedImage.height}
+                    className="block h-auto max-h-60 w-auto max-w-full rounded-xl ring-1 ring-black/10 drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]"
+                    unoptimized
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="absolute right-2 top-2 rounded-full bg-background/85 p-1 text-foreground shadow backdrop-blur transition hover:bg-background"
+                  aria-label="Remove selected image"
+                  disabled={isLoading}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="border-t border-border/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {selectedImage.mediaType.replace("image/", "")} · {formatImageSize(selectedImage.size)} / 1 MB
+                </div>
+              </div>
+            )}
+
+            {imageError && (
+              <p className="text-sm text-destructive">{imageError}</p>
+            )}
+          </div>
+
           <div className="space-y-4">
             {isLoading && (
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/60">
@@ -610,8 +726,8 @@ export default function PostSheet({
               </div>
             )}
 
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -624,15 +740,30 @@ export default function PostSheet({
                 <span className="font-mono tabular-nums text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                   {content.length}/2000
                 </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:bg-amber-400/10 hover:text-amber-600 dark:hover:text-amber-300"
+                  disabled={isLoading || isImageProcessing}
+                  aria-label="Add image"
+                  title="Add image"
+                >
+                  {isImageProcessing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ImagePlus className="h-4 w-4" />
+                  )}
+                </Button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={handlePost}
-                  disabled={isLoading || !isWalletReady || !content.trim()}
+                  disabled={isLoading || isImageProcessing || !isWalletReady || (!content.trim() && !selectedImage)}
                   className={cn(
-                    "inline-flex min-w-[170px] items-center justify-center gap-2 rounded-full border-2 border-amber-400 bg-inherit px-6 py-2.5 text-sm font-semibold text-foreground transition-colors duration-200 ease-in-out animate-pulse-orange hover:bg-amber-400/10 focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400/45",
+                    "inline-flex min-w-[112px] items-center justify-center gap-2 rounded-full border-2 border-amber-400 bg-inherit px-5 py-2.5 text-sm font-semibold text-foreground transition-colors duration-200 ease-in-out animate-pulse-orange hover:bg-amber-400/10 focus:outline-none focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-400/45 sm:min-w-[170px] sm:px-6",
                     "disabled:pointer-events-none disabled:opacity-60"
                   )}
                 >

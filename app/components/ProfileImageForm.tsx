@@ -116,18 +116,15 @@ export function ProfileImageForm({ type, currentUrl, action, className }: Profil
               <div className="relative z-30 flex items-center gap-2 self-end mb-2 mt-2">
                 <button
                   type="submit"
-                  className="group relative inline-flex h-9 items-center justify-center overflow-hidden whitespace-nowrap rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 px-4 text-sm font-semibold text-black shadow-[0_8px_20px_-10px_rgba(245,158,11,0.55)] transition-all hover:scale-[1.01] hover:shadow-[0_12px_30px_-10px_rgba(245,158,11,0.75)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-amber-300/60 bg-amber-500 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-black shadow-[0_2px_10px_rgba(0,0,0,0.35)] transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 disabled:pointer-events-none disabled:opacity-50"
                   disabled={isUploading}
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-amber-300 via-amber-200 to-amber-300 opacity-0 transition-opacity group-hover:opacity-100" />
-                  <span className="relative flex items-center gap-2">
-                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    {isUploading ? 'Saving…' : 'Save'}
-                  </span>
+                  {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isUploading ? 'Saving' : 'Save'}
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/60 px-4 text-sm font-medium text-foreground backdrop-blur transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-black/75 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/50 disabled:pointer-events-none disabled:opacity-50"
                   onClick={cancelPreview}
                   disabled={isUploading}
                 >
@@ -153,18 +150,15 @@ export function ProfileImageForm({ type, currentUrl, action, className }: Profil
               <div className="absolute bottom-4 right-4 flex items-center gap-2 z-20">
                 <button
                   type="submit"
-                  className="group relative inline-flex h-9 items-center justify-center overflow-hidden whitespace-nowrap rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 px-4 text-sm font-semibold text-black shadow-[0_8px_20px_-10px_rgba(245,158,11,0.55)] transition-all hover:scale-[1.01] hover:shadow-[0_12px_30px_-10px_rgba(245,158,11,0.75)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-amber-300/60 bg-amber-500 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-black shadow-[0_2px_10px_rgba(0,0,0,0.35)] transition-colors hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/70 disabled:pointer-events-none disabled:opacity-50"
                   disabled={isUploading}
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-amber-300 via-amber-200 to-amber-300 opacity-0 transition-opacity group-hover:opacity-100" />
-                  <span className="relative flex items-center gap-2">
-                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    {isUploading ? 'Saving…' : 'Save'}
-                  </span>
+                  {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isUploading ? 'Saving' : 'Save'}
                 </button>
                 <button
                   type="button"
-                  className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-border/70 bg-background/90 px-4 text-sm font-medium text-foreground backdrop-blur transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-black/75 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-white shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-colors hover:bg-black/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/50 disabled:pointer-events-none disabled:opacity-50"
                   onClick={cancelPreview}
                   disabled={isUploading}
                 >

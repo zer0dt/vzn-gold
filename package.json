@@ -37,6 +37,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^11.13.5",
+    "heic2any": "^0.0.4",
     "js-1sat-ord": "0.1.82",
     "katex": "^0.16.21",
     "lucide-react": "^0.468.0",

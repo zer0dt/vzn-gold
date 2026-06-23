@@ -28,6 +28,7 @@ import { handleConfirmLockAction } from './lockActions'
 
 // Utilities
 import { getTotalLockedSats } from '@/app/lib/utils' // Adjust path
+import { getPostImageUrl } from '@/app/lib/post-image-utils'
 import { Avatar, AvatarImage, AvatarFallback } from "@/app/components/ui/avatar";
 
 export type { PostProps }
@@ -120,9 +121,11 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
 
    // --- Image Fullscreen Handling ---
    const attachedImageUrl = useMemo(() => {
-    if (!post.hasImage) return null;
-    const outputIndex = (post.content && post.content.trim() !== '') ? '_1' : '_0';
-    return `https://ordinals.gorillapool.io/content/${post.txid}${outputIndex}`;
+    return getPostImageUrl({
+      txid: post.txid,
+      content: post.content,
+      hasImage: post.hasImage,
+    });
   }, [post.txid, post.hasImage, post.content]);
 
   const handleImageClick = useCallback(() => {

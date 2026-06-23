@@ -1,11 +1,22 @@
 import { NextResponse } from 'next/server';
 import { PrivateKey, Transaction, P2PKH, Script } from '@bsv/sdk';
+import {
+    appendAIPToOutputs,
+    base64ToBytes,
+    buildUnsignedBSocialOutputs,
+    chunkToBytes,
+    DEFAULT_APP_NAME,
+    type BSocialChunk,
+    type BSocialImagePayload,
+    type BSocialPostType,
+    type BSocialOutput,
+} from '@/app/lib/bsocial-payload';
+import {
+    ACCEPTED_POST_IMAGE_TYPES,
+    MAX_POST_IMAGE_BYTES,
+} from '@/app/lib/post-image-utils';
 
-// Constants
-const B_PROTOCOL_ADDRESS = '19HxigV4QyBv3tHpQVcUEQyq1pzZVdoAut';
-const MAP_PROTOCOL_ADDRESS = '1PuQa7K62MiKCtssSLKy1kh56WWU7MtUR5';
-const AIP_PROTOCOL_ADDRESS = '15PciHG22SNLQJXMoSUaWVi7WSqc7hCfva';
-const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'bitcoin';
+const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || DEFAULT_APP_NAME;
 
 // Match the lock flow mining fee: 200 sat/kB = 0.2 sat/byte.
 const FEE_PER_KB = 100;
@@ -103,7 +114,7 @@ async function getPaymentUTXOs(address: string, amount: number): Promise<Array<{
 }
 
 // Build OP_RETURN script with BSocial data
-function buildOpReturnScript(payload: string[]): Script {
+function buildOpReturnScript(payload: BSocialOutput): Script {
     // Build the OP_RETURN script manually
     // OP_FALSE (0x00) + OP_RETURN (0x6a) + push data items
     const chunks: number[] = [];
@@ -113,7 +124,7 @@ function buildOpReturnScript(payload: string[]): Script {
     chunks.push(0x6a);
 
     for (const item of payload) {
-        const data = Buffer.from(item, 'utf8');
+        const data = Buffer.from(chunkToBytes(item as BSocialChunk));
         const len = data.length;
 
         if (len === 0) {
@@ -160,72 +171,43 @@ function buildOpReturnScript(payload: string[]): Script {
     return Script.fromHex(Buffer.from(chunks).toString('hex'));
 }
 
-// BSocial Post builder for server-side use
-class BSocialPost {
-    appName: string;
-    type: string;
-    txId: string;
-    texts: Array<{ text: string; type: string }>;
-
-    constructor(appName: string) {
-        if (!appName) throw new Error('App name needs to be set');
-        this.appName = appName;
-        this.type = 'post';
-        this.txId = '';
-        this.texts = [];
+function validateImagePayload(image: unknown): BSocialImagePayload | undefined {
+    if (!image) {
+        return undefined;
     }
 
-    setTxId(txId: string): void {
-        this.txId = txId;
+    if (typeof image !== 'object') {
+        throw new Error('Invalid image payload');
     }
 
-    addText(text: string, type: string = 'text/markdown'): void {
-        if (typeof text !== 'string') throw new Error('Text should be a string');
-        this.texts.push({ text, type });
+    const candidate = image as Partial<BSocialImagePayload>;
+    if (
+        typeof candidate.dataBase64 !== 'string' ||
+        typeof candidate.mediaType !== 'string' ||
+        typeof candidate.size !== 'number'
+    ) {
+        throw new Error('Invalid image payload');
     }
 
-    getOps(): string[] {
-        const hasContent = this.texts.length > 0;
-        if (!hasContent) {
-            throw new Error('There is no content for this post');
-        }
-
-        const ops: string[] = [];
-
-        // Add B protocol content
-        if (this.texts.length > 0) {
-            this.texts.forEach((t) => {
-                ops.push(B_PROTOCOL_ADDRESS);
-                ops.push(t.text);
-                ops.push(t.type);
-                ops.push('UTF-8');
-                ops.push('|');
-            });
-        }
-
-        // Add MAP protocol metadata
-        ops.push(MAP_PROTOCOL_ADDRESS);
-        ops.push('SET');
-        ops.push('app');
-        ops.push(this.appName);
-        ops.push('type');
-        ops.push(this.type);
-
-        // Add reply context if this is a reply
-        if (this.txId) {
-            ops.push('context');
-            ops.push('tx');
-            ops.push('tx');
-            ops.push(this.txId);
-        }
-
-        return ops;
+    const mediaType = candidate.mediaType.toLowerCase();
+    if (!ACCEPTED_POST_IMAGE_TYPES.includes(mediaType)) {
+        throw new Error('Unsupported image type');
     }
-}
 
-// Append pre-computed AIP signature to ops (when client provides signature)
-function appendAIPSignature(ops: string[], signerAddress: string, signature: string): string[] {
-    return ops.concat(['|', AIP_PROTOCOL_ADDRESS, 'BITCOIN_ECDSA', signerAddress, signature]);
+    const bytes = base64ToBytes(candidate.dataBase64);
+    if (bytes.byteLength !== candidate.size) {
+        throw new Error('Image size mismatch');
+    }
+
+    if (bytes.byteLength > MAX_POST_IMAGE_BYTES) {
+        throw new Error('Image must be 1 MB or smaller');
+    }
+
+    return {
+        dataBase64: candidate.dataBase64,
+        mediaType,
+        size: bytes.byteLength,
+    };
 }
 
 export async function POST(req: Request) {
@@ -233,10 +215,24 @@ export async function POST(req: Request) {
 
     try {
         const body = await req.json();
-        const { content, type, replyToTxid, aipSignature, signerAddress } = body;
+        const { content, type, replyToTxid, aipSignature, signerAddress, image } = body;
+        const postType: BSocialPostType = type === 'reply' ? 'reply' : 'post';
+        const finalContent = typeof content === 'string' ? content.trim() : '';
+        let imagePayload: BSocialImagePayload | undefined;
 
-        if (!content || typeof content !== 'string') {
-            return NextResponse.json({ error: 'Missing or invalid content' }, { status: 400 });
+        try {
+            imagePayload = validateImagePayload(image);
+        } catch (validationError) {
+            const message = validationError instanceof Error ? validationError.message : 'Invalid image payload';
+            return NextResponse.json({ error: message }, { status: 400 });
+        }
+
+        if (!finalContent && !imagePayload) {
+            return NextResponse.json({ error: 'Add text or an image before posting' }, { status: 400 });
+        }
+
+        if (postType === 'reply' && (typeof replyToTxid !== 'string' || !replyToTxid.trim())) {
+            return NextResponse.json({ error: 'Missing reply parent transaction' }, { status: 400 });
         }
 
         if (
@@ -264,29 +260,27 @@ export async function POST(req: Request) {
 
         console.log(`[sign-and-pay] App wallet address: ${address}`);
 
-        // Create the BSocial post/reply
-        const bSocial = new BSocialPost(APP_NAME);
-        bSocial.addText(content);
-
-        // If this is a reply, set the parent txid
-        if (type === 'reply' && replyToTxid) {
-            bSocial.setTxId(replyToTxid);
-        }
-
-        // Get ops and sign with AIP
-        const ops = bSocial.getOps();
-
-        const signedPayload = appendAIPSignature(ops, signerAddress, aipSignature);
+        const unsignedOutputs = buildUnsignedBSocialOutputs({
+            content: finalContent,
+            appName: APP_NAME,
+            type: postType,
+            replyToTxid,
+            image: imagePayload,
+        });
+        const signedOutputs = appendAIPToOutputs(unsignedOutputs, signerAddress, aipSignature);
         console.log(`[sign-and-pay] Using client-provided AIP signature from address: ${signerAddress}`);
         console.log('[sign-and-pay] Payload created');
 
         // Build the OP_RETURN script
-        const opReturnScript = buildOpReturnScript(signedPayload);
+        const opReturnScripts = signedOutputs.map(buildOpReturnScript);
 
         // Estimate transaction size for fee calculation
-        // Base tx size + OP_RETURN output + P2PKH input + P2PKH change output
-        const opReturnSize = opReturnScript.toHex().length / 2;
-        const estimatedTxSize = 10 + opReturnSize + 9 + 148 + 34; // overhead + opreturn + output overhead + input + change
+        // Base tx size + OP_RETURN outputs + P2PKH input + P2PKH change output
+        const opReturnOutputsSize = opReturnScripts.reduce(
+            (total, script) => total + (script.toHex().length / 2) + 9,
+            0
+        );
+        const estimatedTxSize = 10 + opReturnOutputsSize + 148 + 34; // overhead + opreturns + input + change
         const txFee = Math.ceil(estimatedTxSize * FEE_RATE) + 1;
 
         console.log(`[sign-and-pay] Estimated tx size: ${estimatedTxSize}, fee: ${txFee}`);
@@ -329,11 +323,13 @@ export async function POST(req: Request) {
             });
         }
 
-        // Add OP_RETURN output
-        tx.addOutput({
-            lockingScript: opReturnScript,
-            satoshis: 0
-        });
+        // Add OP_RETURN output(s)
+        for (const opReturnScript of opReturnScripts) {
+            tx.addOutput({
+                lockingScript: opReturnScript,
+                satoshis: 0
+            });
+        }
 
         // Calculate total input satoshis
         const inputSatoshis = utxos.reduce((t, e) => t + e.satoshis, 0);

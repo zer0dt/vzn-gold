@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Avatar, AvatarImage, AvatarFallback } from "@/app/components/ui/avatar"
 import { ProfileFeed } from "@/app/components/ProfileFeed" // Keep ProfileFeed here if it needs client interactivity or state
 import { ScrollToTop } from "@/app/components/ScrollToTop"
 import Image from 'next/image' // Import Image component
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, X } from "lucide-react"
 import dynamic from "next/dynamic"
 import type { Profile } from '@/types'
 
@@ -34,6 +34,20 @@ export function UserProfileClient({ profile }: UserProfileClientProps) {
     setIsModalOpen(false);
     setModalImageUrl(null);
   };
+
+  // Allow closing the fullscreen image with the Escape key
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
 
   const joinDate = new Date(profile.created_at);
 
@@ -123,15 +137,32 @@ export function UserProfileClient({ profile }: UserProfileClientProps) {
       {/* Image Modal */}
       {isModalOpen && modalImageUrl && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-4"
           onClick={closeModal} // Close modal when clicking the background
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fullscreen image view"
         >
+          {/* Close Button */}
+          <button
+            type="button"
+            aria-label="Close fullscreen image view"
+            className="absolute right-4 top-4 z-[111] rounded-full opacity-80 transition-opacity hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
+            onClick={closeModal}
+          >
+            <X className="h-8 w-8 rounded-full bg-black/40 p-1 text-white" />
+          </button>
+
+          {/* Image */}
           <Image
+            key={modalImageUrl}
             src={modalImageUrl}
             alt="Fullscreen view"
-            fill
-            className="object-contain"
+            width={1920}
+            height={1080}
+            className="max-h-[95vh] w-auto max-w-[95vw] object-contain select-none"
             unoptimized
+            priority
             onClick={(e) => e.stopPropagation()} // Prevent closing when clicking the image itself
           />
         </div>
