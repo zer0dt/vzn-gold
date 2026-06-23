@@ -36,10 +36,6 @@ import {
 } from "@/app/lib/supabase/posts";
 import { getProfileByUserId } from "@/app/lib/supabase/profiles";
 import {
-  formatProgressElapsedTime,
-  getTransactionProgressLabel,
-} from "@/app/lib/transaction-progress";
-import {
   formatPublicKey,
   formatShortTxid,
   formatTimeAgo,
@@ -619,13 +615,7 @@ export default function CommentSheet({
             >
               <span className="flex items-center justify-center gap-2">
                 {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">
-                      {getTransactionProgressLabel(progress)}…{" "}
-                      {formatProgressElapsedTime(elapsedSeconds)}
-                    </span>
-                  </>
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   "Reply"
                 )}

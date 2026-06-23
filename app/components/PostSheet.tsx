@@ -31,7 +31,6 @@ import { signWithAIP, getOwnerKey } from '@/app/lib/aip-signer';
 import { feedQueryKeys } from '@/app/lib/query-keys';
 import { createOptimisticPost, prependPostToInfiniteData, type HydratedPost } from '@/app/lib/supabase/posts';
 import { getProfileByUserId } from '@/app/lib/supabase/profiles';
-import { formatProgressElapsedTime, getTransactionProgressLabel } from '@/app/lib/transaction-progress';
 import {
   formatImageSize,
   POST_IMAGE_INPUT_ACCEPT,
@@ -769,12 +768,7 @@ export default function PostSheet({
                 >
                   <span className="flex items-center justify-center gap-2">
                     {isLoading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>
-                          {getTransactionProgressLabel(progress)}… {formatProgressElapsedTime(elapsedSeconds)}
-                        </span>
-                      </>
+                      <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <span>Post</span>
                     )}

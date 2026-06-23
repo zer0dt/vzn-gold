@@ -37,19 +37,17 @@ export const ImageFullscreenDialog = ({ isOpen, onOpenChange, imageUrl }: ImageF
         </button>
 
         {/* Image Container */}
-        <div
-          className="relative w-full h-full flex items-center justify-center p-4" // Add padding around image container
-          onClick={stopPropagation} // Prevent closing dialog when clicking image area
-        >
+        <div className="relative w-full h-full flex items-center justify-center p-4">
            <Image
               key={imageUrl} // Re-render if URL changes somehow
               src={imageUrl}
               alt="Full screen post attachment"
               width={1920} // Max desired render width
               height={1080} // Max desired render height
-              className="max-w-[95vw] max-h-[95vh] object-contain select-none" // Prevent text selection
+              className="w-auto h-auto max-w-[95vw] max-h-[95vh] object-contain select-none" // Prevent text selection
               unoptimized // Consistent with PostImage
               priority // Ensure it loads promptly when opened
+              onClick={stopPropagation} // Only clicking the image itself keeps the dialog open
             />
         </div>
       </DialogContent>
