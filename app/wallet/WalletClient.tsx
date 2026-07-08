@@ -241,6 +241,7 @@ export default function WalletPage() {
         duration: 3000,
       });
       setShowWalletPasskeyPrompt(false);
+      router.push('/');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save passkey';
       if (!message.toLowerCase().includes('cancel') && !message.toLowerCase().includes('abort')) {
@@ -257,10 +258,25 @@ export default function WalletPage() {
     }
   };
 
+  // Redirect to the index page after the wallet is unlocked. If a passkey-save
+  // prompt is about to be shown, defer the redirect until it is resolved.
+  const handleWalletUnlocked = useCallback(() => {
+    const willPromptPasskey =
+      hasTempPassword() &&
+      isPasskeyAvailable() &&
+      Boolean(profileOwnerAddress) &&
+      !hasWalletPasskey(profileOwnerAddress as string);
+
+    if (!willPromptPasskey) {
+      router.push('/');
+    }
+  }, [profileOwnerAddress, router]);
+
   // Handler for skipping passkey save
   const handleSkipWalletPasskey = () => {
     clearTempPassword();
     setShowWalletPasskeyPrompt(false);
+    router.push('/');
   };
 
   const handleSendBSV = async () => {
@@ -399,7 +415,7 @@ export default function WalletPage() {
   }
 
   if (!isWalletInitialized && (profileOwnerKeyBip38 && profilePaymentKeyBip38)) {
-    return <UnlockEncryptedKeysView onUnlocked={() => {}} />;
+    return <UnlockEncryptedKeysView onUnlocked={handleWalletUnlocked} />;
   }
 
   if (profileOwnerAddress && profilePaymentAddress) {
@@ -441,7 +457,7 @@ export default function WalletPage() {
     // If no local wallet is initialized but profile has both encrypted keys, show unlock view
     if (!isWalletInitialized && (profileOwnerKeyBip38 && profilePaymentKeyBip38)) {
       return (
-        <UnlockEncryptedKeysView onUnlocked={() => {}} />
+        <UnlockEncryptedKeysView onUnlocked={handleWalletUnlocked} />
       )
     }
 

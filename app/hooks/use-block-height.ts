@@ -63,11 +63,17 @@ export function useBlockHeight(initialBlockHeight?: number) {
 
       // Check if a new block was mined AND we haven't already notified about it
       if (lastNotifiedBlockHeight !== null && blockHeight > lastNotifiedBlockHeight) {
-        toast({
-          title: '⛏️ New Block Mined!',
-          description: `Block #${blockHeight.toLocaleString()}`,
-          duration: 3000,
-        })
+        // Only show the toast on desktop-sized viewports (skip on mobile)
+        const isDesktop =
+          typeof window !== 'undefined' &&
+          window.matchMedia('(min-width: 768px)').matches
+        if (isDesktop) {
+          toast({
+            title: '⛏️ New Block Mined!',
+            description: `Block #${blockHeight.toLocaleString()}`,
+            duration: 3000,
+          })
+        }
         // Update the global tracker so other instances don't show duplicate toasts
         lastNotifiedBlockHeight = blockHeight
       }

@@ -1,5 +1,15 @@
 # VZN.gold
 
+> **Notice — `$VZN` origin updated (July 2026)**  
+> The on-chain origin for `$VZN` has changed because the deploy `decimals` field was wrong in the original token: it was set to **8** but should have been **0**. A corrected deploy was submitted on mainnet.
+>
+> | | Origin ID |
+> |---|---|
+> | **Previous** (incorrect decimals) | `5716981d60affbf3b626ad3b7ac3f1d6c75b537d6db38dd0ccd6098f2dcd78f3_0` |
+> | **Current** (decimals = 0) | `ada22c904dfeba78459cc0a4a325f74d11cffce10217e1c838c219ea3e3a29e5_0` |
+>
+> Update `NEXT_PUBLIC_LLM21_ORIGIN_ID` and `OVERLAY_TOPIC` in your `.env` / `.env.local` if you are still pointing at the old origin. The value in `.env.example` will be updated to match.
+
 `VZN.gold` is a social platform built around one core primitive: the `LockLikeMintBSV21Parallel` smart contract (see `src/contracts/LockLikeMintBSV21Parallel.ts`), aka `LLM-21`.
 
 What makes `LLM-21` stand out is that a like is not just social metadata. In this system, a user [locks satoshis](https://github.com/shruggr/lockup/blob/main/src/contracts/lockup.ts), includes [a like](https://bitcoinschema.org/docs/schemas/social-actions#like) in the transaction, and receives a [token mint](https://docs.1satordinals.com/fungible-tokens/bsv-21) if the contract rules are satisfied. That means this repo is really about a lock-like-mint social primitive enforced by the contract itself, with the wallet flow, transaction assembly, and app infrastructure built around it.
@@ -197,7 +207,9 @@ So Supabase is not the source of truth for the like itself. The chain transactio
 
 That origin is:
 
-`5716981d60affbf3b626ad3b7ac3f1d6c75b537d6db38dd0ccd6098f2dcd78f3_0`
+`ada22c904dfeba78459cc0a4a325f74d11cffce10217e1c838c219ea3e3a29e5_0`
+
+The previous origin (`5716981d60affbf3b626ad3b7ac3f1d6c75b537d6db38dd0ccd6098f2dcd78f3_0`) was retired after a redeploy corrected the token `decimals` from 8 to 0. See the notice at the top of this README.
 
 An `LLM-21` origin is the starting outpoint for the contract/token lineage that later transactions build on. With the parallel contract, that origin ID still identifies the token, but minting no longer follows a single linear tip. Instead, the app asks the overlay for any live unspent minter branch whose BSV-21 metadata matches that origin.
 

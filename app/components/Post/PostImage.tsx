@@ -102,24 +102,26 @@ export const PostImage = React.memo(({ post, onImageClick }: PostImageProps) => 
         className={`relative ${isLoaded ? 'cursor-pointer' : ''}`}
         onClick={handleContainerClick}
       >
-        {/* Image (kept mounted so onLoad/onError keep firing across retries) */}
+        {/* Image (kept mounted so onLoad/onError keep firing across retries).
+            While not loaded it is taken out of flow so the placeholder controls height. */}
         <Image
           key={imageSrc}
           src={imageSrc}
           alt="Post attachment"
           width={1200} // Provide desired render size
           height={675} // Maintain aspect ratio
-          className="mx-auto block h-auto w-auto max-h-[420px] max-w-full rounded-2xl object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]"
+          className={`mx-auto block h-auto w-auto max-h-[420px] max-w-full rounded-2xl object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)] ${
+            isLoaded ? '' : 'pointer-events-none absolute h-0 w-0 opacity-0'
+          }`}
           loading="lazy"
           unoptimized // If Gorilla Pool doesn't optimize or you don't want Next optimization
           onLoad={handleImageLoad}
           onError={handleImageError}
-          style={{ visibility: isLoaded ? 'visible' : 'hidden' }} // Hide image element until loaded
         />
 
-        {/* Placeholder overlay while loading or processing on-chain */}
+        {/* Placeholder while loading or processing on-chain (kept in normal flow so it reserves height) */}
         {!isLoaded && (
-          <div className="absolute inset-0 flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-border/50 bg-muted/40 px-4 text-center">
+          <div className="flex min-h-[160px] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-border/50 bg-muted/40 px-4 text-center">
             {isProcessing ? (
               <>
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground/80">

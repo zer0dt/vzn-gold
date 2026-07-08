@@ -151,13 +151,31 @@ export function appendAIPToOutputs(
 }
 
 export function buildAIPMessageBytes(outputs: BSocialOutput[]): number[] {
-  const messageBytes: number[] = [];
+  // Collect all byte segments first, then flatten with index assignment.
+  // NOTE: do NOT use `array.push(...bytes)` here. Image chunks can be ~1MB,
+  // and spreading that many elements as function arguments throws a
+  // RangeError (especially on iOS Safari, which has a low argument limit).
+  const segments: Uint8Array[] = [];
+  let totalLength = 0;
 
   for (const output of outputs) {
-    messageBytes.push(0x00, 0x6a);
+    const prefix = new Uint8Array([0x00, 0x6a]);
+    segments.push(prefix);
+    totalLength += prefix.length;
 
     for (const chunk of output) {
-      messageBytes.push(...chunkToBytes(chunk));
+      const bytes = chunkToBytes(chunk);
+      segments.push(bytes);
+      totalLength += bytes.length;
+    }
+  }
+
+  const messageBytes = new Array<number>(totalLength);
+  let offset = 0;
+  for (const segment of segments) {
+    for (let index = 0; index < segment.length; index += 1) {
+      messageBytes[offset] = segment[index];
+      offset += 1;
     }
   }
 
