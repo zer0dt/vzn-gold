@@ -1,19 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Copy, Download, Layers, Loader2, RefreshCw } from "lucide-react";
+import { Copy, Download, Loader2, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { wocAddressUrl, wocTxUrl } from "@/app/lib/explorer";
 import { formatShortTxid } from "@/app/lib/utils";
-import { useToast } from "@/app/hooks/use-toast";
-import {
-  splitPaymentIntoTestFundingUtxos,
-  TEST_FUNDING_FEE_HEADROOM_SATS,
-  TEST_FUNDING_OUTPUT_COUNT,
-  TEST_FUNDING_SATS_PER_OUTPUT,
-} from "../splitTestFundingUtxos";
 
 type UnconfirmedTx = { txid: string; value: number };
 
@@ -49,37 +41,6 @@ export default function WalletDetailsTab(props: WalletDetailsTabProps) {
     setIsSendDialogOpen,
     backupWallet,
   } = props;
-
-  const { toast } = useToast();
-  const [isSplittingFunding, setIsSplittingFunding] = useState(false);
-
-  const minSplitSats =
-    TEST_FUNDING_OUTPUT_COUNT * TEST_FUNDING_SATS_PER_OUTPUT +
-    TEST_FUNDING_FEE_HEADROOM_SATS;
-
-  const handleSplitFundingForTesting = async () => {
-    setIsSplittingFunding(true);
-    try {
-      const { txid, outputCount, satsPerOutput } =
-        await splitPaymentIntoTestFundingUtxos();
-      toast({
-        title: "Funding UTXOs created",
-        description: `${outputCount} × ${satsPerOutput.toLocaleString()} sats — ${txid}`,
-        duration: 8000,
-      });
-      await fetchDetailedBalance();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Split transaction failed";
-      toast({
-        variant: "destructive",
-        title: "Could not split funding",
-        description: message,
-        duration: 6000,
-      });
-    } finally {
-      setIsSplittingFunding(false);
-    }
-  };
 
   return (
     <Card className="w-full rounded-2xl border-border/60 bg-background/60 backdrop-blur shadow-none">
@@ -274,62 +235,6 @@ export default function WalletDetailsTab(props: WalletDetailsTabProps) {
             >
               Backup
             </Button>
-          </div>
-
-          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 p-4 space-y-3">
-            <div className="flex items-start gap-2">
-              <Layers className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-              <div className="space-y-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">
-                  Mint funding test UTXOs
-                </p>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  One transaction sends{" "}
-                  <span className="font-mono tabular-nums">
-                    {TEST_FUNDING_OUTPUT_COUNT} × {TEST_FUNDING_SATS_PER_OUTPUT.toLocaleString()}
-                  </span>{" "}
-                  sats back to this payment address so{" "}
-                  <span className="font-mono">getPaymentUTXOs</span> (used when locking /
-                  minting) has many fresh inputs. Requires roughly{" "}
-                  <span className="font-mono tabular-nums">
-                    {minSplitSats.toLocaleString()}
-                  </span>{" "}
-                  sats available including fees.
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="w-full rounded-full font-mono text-xs"
-              disabled={
-                isUpdatingProfile ||
-                isFetchingBalance ||
-                isSending ||
-                isSplittingFunding ||
-                walletBalance < minSplitSats
-              }
-              onClick={handleSplitFundingForTesting}
-            >
-              {isSplittingFunding ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin inline" />
-                  Building & broadcasting…
-                </>
-              ) : (
-                <>
-                  Create {TEST_FUNDING_OUTPUT_COUNT} ×{" "}
-                  {TEST_FUNDING_SATS_PER_OUTPUT.toLocaleString()} sat outputs
-                </>
-              )}
-            </Button>
-            {walletBalance < minSplitSats && (
-              <p className="text-[10px] text-muted-foreground font-mono">
-                Need at least ~{minSplitSats.toLocaleString()} sats (have{" "}
-                {walletBalance.toLocaleString()}).
-              </p>
-            )}
           </div>
         </div>
       </CardContent>
