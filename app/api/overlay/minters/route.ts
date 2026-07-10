@@ -94,6 +94,37 @@ function errorMessage(error: unknown): string {
 }
 
 const LOG_PREFIX = '[overlay/minters]'
+const CANDIDATE_VALIDATION_CONCURRENCY = 4
+
+type MinterCandidate = {
+  txid: string
+  outputIndex: number
+  amount: bigint
+}
+
+type CandidateSkip = {
+  txid: string
+  outputIndex: number
+  reason: string
+}
+
+type CandidateValidationResult =
+  | {
+      ok: true
+      index: number
+      candidate: MinterCandidate
+      rawtx: string
+      satoshis: number
+      script: string
+      supply: string
+      elapsedMs: number
+    }
+  | {
+      ok: false
+      index: number
+      skipped: CandidateSkip
+      elapsedMs: number
+    }
 
 function summarizeUnspentRows(payload: unknown[], originId: string, limit = 40) {
   const slice = payload.slice(0, limit)
@@ -115,7 +146,78 @@ function summarizeUnspentRows(payload: unknown[], originId: string, limit = 40) 
   return { rows, total: payload.length, truncated: payload.length > limit }
 }
 
+async function validateCandidate(
+  candidate: MinterCandidate,
+  index: number
+): Promise<CandidateValidationResult> {
+  const startedAt = Date.now()
+  try {
+    console.log(LOG_PREFIX, 'try candidate', {
+      txid: candidate.txid,
+      outputIndex: candidate.outputIndex,
+      overlayAmt: candidate.amount.toString(),
+      index,
+    })
+    const rawtx = await getRawTransactionHexForTxid(candidate.txid)
+    const tx = new bsv.Transaction(rawtx)
+    const output = tx.outputs[candidate.outputIndex]
+    if (!output) {
+      const skipped = {
+        txid: candidate.txid,
+        outputIndex: candidate.outputIndex,
+        reason: 'source transaction missing output',
+      }
+      console.warn(LOG_PREFIX, 'skip', skipped)
+      return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
+    }
+
+    const fromUTXO = {
+      txId: candidate.txid,
+      outputIndex: candidate.outputIndex,
+      satoshis: output.satoshis,
+      script: output.script.toHex(),
+    }
+    const instance = LockLikeMintBSV21Parallel.fromUTXO(fromUTXO)
+    console.log(LOG_PREFIX, 'decoded contract', {
+      txid: candidate.txid,
+      outputIndex: candidate.outputIndex,
+      supply: instance.supply.toString(),
+      overlayAmt: candidate.amount.toString(),
+      index,
+    })
+    if (instance.supply <= BigInt(0)) {
+      const skipped = {
+        txid: candidate.txid,
+        outputIndex: candidate.outputIndex,
+        reason: 'decoded minter has no remaining supply',
+      }
+      console.warn(LOG_PREFIX, 'skip', skipped)
+      return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
+    }
+
+    return {
+      ok: true,
+      index,
+      candidate,
+      rawtx,
+      satoshis: fromUTXO.satoshis,
+      script: fromUTXO.script,
+      supply: instance.supply.toString(),
+      elapsedMs: Date.now() - startedAt,
+    }
+  } catch (error) {
+    const skipped = {
+      txid: candidate.txid,
+      outputIndex: candidate.outputIndex,
+      reason: errorMessage(error),
+    }
+    console.warn(LOG_PREFIX, 'candidate error', skipped)
+    return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
+  }
+}
+
 export async function GET(request: Request) {
+  const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
   const originId = searchParams.get('originId')?.trim()
   const excluded = new Set(
@@ -137,10 +239,13 @@ export async function GET(request: Request) {
       overlayBase: normalizeOverlayBaseUrl(OVERLAY_URL),
     })
 
+    const artifactStartedAt = Date.now()
     await ensureArtifactLoaded()
+    const artifactMs = Date.now() - artifactStartedAt
 
     const topic = `tm_${originId}`
     const event = `id:${originId}`
+    const overlayStartedAt = Date.now()
     const upstream = await fetch(
       `${normalizeOverlayBaseUrl(OVERLAY_URL)}/api/1sat/events/${topic}/unspent?limit=1000`,
       {
@@ -150,6 +255,7 @@ export async function GET(request: Request) {
         cache: 'no-store',
       }
     )
+    const overlayUnspentMs = Date.now() - overlayStartedAt
 
     const text = await upstream.text()
     let payload: unknown
@@ -197,7 +303,7 @@ export async function GET(request: Request) {
       rows: unspentSummary.rows,
     })
 
-    const candidates = payload
+    const candidates: MinterCandidate[] = payload
       .map((output) => {
         const overlayOutput = output as OverlayOutputData
         if (!isCandidateMinterOutput(overlayOutput, originId)) {
@@ -229,80 +335,64 @@ export async function GET(request: Request) {
       excluded: [...excluded],
     })
 
-    const skipped: Array<{ txid: string; outputIndex: number; reason: string }> = []
+    const skipped: CandidateSkip[] = []
+    const validationStartedAt = Date.now()
 
-    for (const candidate of candidates) {
-      try {
-        console.log(LOG_PREFIX, 'try candidate', {
-          txid: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          overlayAmt: candidate.amount.toString(),
-        })
-        const rawtx = await getRawTransactionHexForTxid(candidate.txid)
-        const tx = new bsv.Transaction(rawtx)
-        const output = tx.outputs[candidate.outputIndex]
-        if (!output) {
-          const entry = {
-            txid: candidate.txid,
-            outputIndex: candidate.outputIndex,
-            reason: 'source transaction missing output',
-          }
-          skipped.push(entry)
-          console.warn(LOG_PREFIX, 'skip', entry)
-          continue
-        }
-
-        const fromUTXO = {
-          txId: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          satoshis: output.satoshis,
-          script: output.script.toHex(),
-        }
-        const instance = LockLikeMintBSV21Parallel.fromUTXO(fromUTXO)
-        console.log(LOG_PREFIX, 'decoded contract', {
-          txid: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          supply: instance.supply.toString(),
-          overlayAmt: candidate.amount.toString(),
-        })
-        if (instance.supply <= BigInt(0)) {
-          skipped.push({
-            txid: candidate.txid,
-            outputIndex: candidate.outputIndex,
-            reason: 'decoded minter has no remaining supply',
-          })
-          console.warn(LOG_PREFIX, 'skip', skipped[skipped.length - 1])
-          continue
-        }
-
-        console.log(LOG_PREFIX, 'selected minter', {
-          txid: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          supply: instance.supply.toString(),
-          overlayAmt: candidate.amount.toString(),
-          skippedBeforeSuccess: skipped.length,
-        })
-
-        return NextResponse.json({
-          txid: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          rawtx,
-          satoshis: fromUTXO.satoshis,
-          script: fromUTXO.script,
-          supply: instance.supply.toString(),
-          overlayAmount: candidate.amount.toString(),
-          candidateCount: candidates.length,
-          skipped,
-        })
-      } catch (error) {
-        const entry = {
-          txid: candidate.txid,
-          outputIndex: candidate.outputIndex,
-          reason: errorMessage(error),
-        }
-        skipped.push(entry)
-        console.warn(LOG_PREFIX, 'candidate error', entry)
+    for (let offset = 0; offset < candidates.length; offset += CANDIDATE_VALIDATION_CONCURRENCY) {
+      const batch = candidates.slice(offset, offset + CANDIDATE_VALIDATION_CONCURRENCY)
+      const results = await Promise.all(
+        batch.map((candidate, batchIndex) => validateCandidate(candidate, offset + batchIndex))
+      )
+      const selected = results.find((result): result is Extract<CandidateValidationResult, { ok: true }> => result.ok)
+      if (!selected) {
+        skipped.push(
+          ...results
+            .filter((result): result is Extract<CandidateValidationResult, { ok: false }> => !result.ok)
+            .map((result) => result.skipped)
+        )
+        continue
       }
+
+      skipped.push(
+        ...results
+          .filter(
+            (result): result is Extract<CandidateValidationResult, { ok: false }> =>
+              !result.ok && result.index < selected.index
+          )
+          .map((result) => result.skipped)
+      )
+
+      const validationMs = Date.now() - validationStartedAt
+      console.log(LOG_PREFIX, 'selected minter', {
+        txid: selected.candidate.txid,
+        outputIndex: selected.candidate.outputIndex,
+        supply: selected.supply,
+        overlayAmt: selected.candidate.amount.toString(),
+        skippedBeforeSuccess: skipped.length,
+        selectedIndex: selected.index,
+        validationMs,
+        elapsedMs: Date.now() - startedAt,
+      })
+
+      return NextResponse.json({
+        txid: selected.candidate.txid,
+        outputIndex: selected.candidate.outputIndex,
+        rawtx: selected.rawtx,
+        satoshis: selected.satoshis,
+        script: selected.script,
+        supply: selected.supply,
+        overlayAmount: selected.candidate.amount.toString(),
+        candidateCount: candidates.length,
+        skipped,
+        timings: {
+          artifactMs,
+          overlayUnspentMs,
+          validationMs,
+          selectedCandidateMs: selected.elapsedMs,
+          elapsedMs: Date.now() - startedAt,
+          validationConcurrency: CANDIDATE_VALIDATION_CONCURRENCY,
+        },
+      })
     }
 
     console.warn(LOG_PREFIX, 'no live minter — returning 404', {
@@ -316,6 +406,13 @@ export async function GET(request: Request) {
         error: 'Overlay returned no live LockLikeMintBSV21Parallel minters',
         candidateCount: candidates.length,
         skipped,
+        timings: {
+          artifactMs,
+          overlayUnspentMs,
+          validationMs: Date.now() - validationStartedAt,
+          elapsedMs: Date.now() - startedAt,
+          validationConcurrency: CANDIDATE_VALIDATION_CONCURRENCY,
+        },
       },
       { status: 404 }
     )

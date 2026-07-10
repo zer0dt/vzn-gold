@@ -261,7 +261,8 @@ export class LockLikeMintBSV21Parallel extends BSV20V2 {
         likedTxid: ByteString,
         appName: ByteString
     ): Promise<ContractTransaction> {
-        const defaultAddress = await current.signer.getDefaultAddress()
+        const changeAddress =
+            options.changeAddress || (await current.signer.getDefaultAddress())
         const reward = current.calculateReward(lockAmount)
         const remainingSupply = current.supply - reward
 
@@ -339,7 +340,7 @@ export class LockLikeMintBSV21Parallel extends BSV20V2 {
             )
         )
 
-        tx.change(options.changeAddress || defaultAddress)
+        tx.change(changeAddress)
         return { tx, atInputIndex: 0, nexts: [] }
     }
 

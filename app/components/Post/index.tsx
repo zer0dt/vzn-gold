@@ -105,6 +105,7 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
         satsToLock,
         blocksToLock,
         post,
+        blockHeight,
         supabase,
         queryClient,
         toast,
@@ -115,7 +116,7 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
         setIsLockSheetOpen,
       });
     },
-    [post, supabase, queryClient, toast, walletContext, user]
+    [post, blockHeight, supabase, queryClient, toast, walletContext, user]
   ); 
 
 

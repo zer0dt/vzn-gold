@@ -23,7 +23,7 @@ type WocUnspentRow = {
   isSpentInMempoolTx?: boolean;
 };
 
-type NormalizedUtxo = {
+export type NormalizedUtxo = {
   satoshis: number;
   txid: string;
   vout: number;
@@ -32,7 +32,7 @@ type NormalizedUtxo = {
   confirmations: number | null;
 };
 
-type PaymentUtxo = bsv.Transaction.IUnspentOutput & {
+export type PaymentUtxo = bsv.Transaction.IUnspentOutput & {
   confirmed?: boolean;
   height?: number | null;
   confirmations?: number | null;
@@ -69,7 +69,7 @@ const normalizeUTXOs = (utxos: WocUnspentRow[]): NormalizedUtxo[] => {
   });
 };
 
-const btUTXOs = async (address: string) => {
+export const fetchAvailablePaymentUTXOs = async (address: string): Promise<NormalizedUtxo[]> => {
   if (!address) {
     console.error('btUTXOs called without a valid address.');
     throw new Error('Cannot fetch UTXOs without a valid address.');
@@ -107,13 +107,14 @@ const btUTXOs = async (address: string) => {
   return normalizeUTXOs(availableUtxos);
 };
 
-export const getPaymentUTXOs = async (
+export const selectPaymentUTXOs = (
   address: string,
   amount: number,
+  availableUtxos: NormalizedUtxo[],
   excludedOutpointKeys: string[] = []
-): Promise<PaymentUtxo[]> => {
+): PaymentUtxo[] => {
   const excluded = new Set(excludedOutpointKeys);
-  const utxos = (await btUTXOs(address))
+  const utxos = availableUtxos
     .filter((utxo) => !excluded.has(toOutpointKey(utxo.txid, utxo.vout)))
     .sort((a, b) => {
       if (a.confirmed !== b.confirmed) return a.confirmed ? -1 : 1;
@@ -185,6 +186,15 @@ export const getPaymentUTXOs = async (
   return [];
 };
 
+export const getPaymentUTXOs = async (
+  address: string,
+  amount: number,
+  excludedOutpointKeys: string[] = []
+): Promise<PaymentUtxo[]> => {
+  const availableUtxos = await fetchAvailablePaymentUTXOs(address);
+  return selectPaymentUTXOs(address, amount, availableUtxos, excludedOutpointKeys);
+};
+
 export const getWalletBalance = async (address: string): Promise<number> => {
   if (!address) {
     console.error('getWalletBalance called without a valid address. Returning 0.');
@@ -192,7 +202,7 @@ export const getWalletBalance = async (address: string): Promise<number> => {
   }
   try {
     console.log(`Fetching UTXOs via btUTXOs for balance of address: ${address}`);
-    const utxos = await btUTXOs(address);
+    const utxos = await fetchAvailablePaymentUTXOs(address);
     const balance = utxos.reduce((acc, curr) => acc + (curr?.satoshis || 0), 0);
     console.log(`Calculated balance for ${address}: ${balance}`);
     return balance;

@@ -38,6 +38,18 @@ type BuildCachedBeefOptions = {
   fundingParents?: PreparedFundingParent[]
 }
 
+export type BuildCachedBeefTimings = {
+  parseRawTxMs: number
+  overlayParentBeefFetchMs?: number
+  overlayParentBeefSource: 'client-body' | 'cache' | 'overlay' | 'none'
+  hydrateMs: number
+  serializeBeefMs: number
+  elapsedMs: number
+  overlaySeededInputTxidCount: number
+  hydratedInputTxidCount: number
+  preparedFundingParentCount: number
+}
+
 type OverlayTransactionResponse = {
   beef?: string
 }
@@ -470,7 +482,8 @@ export async function getLatestContractTip(originId: string): Promise<{ txid: st
 async function hydrateTransaction(
   txid: string,
   cache: Map<string, Transaction>,
-  preparedParents: Map<string, PreparedFundingParent> = new Map()
+  preparedParents: Map<string, PreparedFundingParent> = new Map(),
+  inFlight: Map<string, Promise<Transaction>> = new Map()
 ): Promise<Transaction> {
   if (!isValidTxid(txid)) {
     throw new Error(`Invalid txid: ${txid}`)
@@ -481,6 +494,26 @@ async function hydrateTransaction(
     return cachedTransaction
   }
 
+  const pendingTransaction = inFlight.get(txid)
+  if (pendingTransaction) {
+    return pendingTransaction
+  }
+
+  const hydratePromise = hydrateTransactionUncached(txid, cache, preparedParents, inFlight)
+  inFlight.set(txid, hydratePromise)
+  try {
+    return await hydratePromise
+  } finally {
+    inFlight.delete(txid)
+  }
+}
+
+async function hydrateTransactionUncached(
+  txid: string,
+  cache: Map<string, Transaction>,
+  preparedParents: Map<string, PreparedFundingParent>,
+  inFlight: Map<string, Promise<Transaction>>
+): Promise<Transaction> {
   const preparedParent = preparedParents.get(txid)
   const rawtx = preparedParent?.rawtx ?? await getRawTransactionHexCached(txid)
 
@@ -509,10 +542,9 @@ async function hydrateTransaction(
   if (sourceTxids.length !== tx.inputs.length) {
     throw new Error(`Missing sourceTXID while hydrating ${txid}`)
   }
-  const hydrated: Transaction[] = []
-  for (const sourceTxid of sourceTxids) {
-    hydrated.push(await hydrateTransaction(sourceTxid, cache, preparedParents))
-  }
+  const hydrated = await Promise.all(
+    sourceTxids.map((sourceTxid) => hydrateTransaction(sourceTxid, cache, preparedParents, inFlight))
+  )
   tx.inputs.forEach((input, i) => {
     input.sourceTransaction = hydrated[i]
   })
@@ -521,7 +553,7 @@ async function hydrateTransaction(
 }
 
 export async function getCachedBeefByTxid(txid: string): Promise<{ txid: string; beef: string }> {
-  const tx = await hydrateTransaction(txid, new Map())
+  const tx = await hydrateTransaction(txid, new Map(), new Map(), new Map())
   return {
     txid,
     beef: transactionToHexAtomicBeefWithFullAncestors(tx),
@@ -534,7 +566,7 @@ export async function getLatestContractTipBeef(originId: string): Promise<{
   beef: string
 }> {
   const { txid, outputIndex } = await getLatestContractTip(originId)
-  const tx = await hydrateTransaction(txid, new Map())
+  const tx = await hydrateTransaction(txid, new Map(), new Map(), new Map())
 
   return {
     txid,
@@ -568,32 +600,41 @@ export async function prepareFundingParents(txids: string[]): Promise<{
   skipped: Array<{ txid: string; reason: string }>
 }> {
   const uniqueTxids = Array.from(new Set(txids.map((txid) => txid.trim()).filter(isValidTxid)))
-  const parents: PreparedFundingParent[] = []
-  const skipped: Array<{ txid: string; reason: string }> = []
-  for (const txid of uniqueTxids) {
+  const results = await Promise.all(
+    uniqueTxids.map(async (txid) => {
     try {
       const rawtx = await getRawTransactionHexCached(txid)
       const proof = await fetchMerklePathHex(txid)
-      parents.push({
+      return {
+        ok: true as const,
         txid,
         rawtx,
         merklePathHex: proof?.merklePathHex ?? null,
-      })
+      }
     } catch (error) {
-      skipped.push({
+      return {
+        ok: false as const,
         txid,
         reason: error instanceof Error ? error.message : String(error),
-      })
+      }
     }
-  }
+    })
+  )
 
-  return { parents, skipped }
+  return {
+    parents: results
+      .filter((result): result is PreparedFundingParent & { ok: true } => result.ok)
+      .map(({ txid, rawtx, merklePathHex }) => ({ txid, rawtx, merklePathHex })),
+    skipped: results
+      .filter((result): result is { ok: false; txid: string; reason: string } => !result.ok)
+      .map(({ txid, reason }) => ({ txid, reason })),
+  }
 }
 
 export async function buildCachedBeefFromRawTx(
   rawtx: string,
   options: BuildCachedBeefOptions | string[] = {}
-): Promise<{ beef: string }> {
+): Promise<{ beef: string; timings: BuildCachedBeefTimings }> {
   const startedAt = Date.now()
   const parseRawTxStartedAt = Date.now()
   const tx = Transaction.fromHex(rawtx)
@@ -659,10 +700,10 @@ export async function buildCachedBeefFromRawTx(
     : uniqueSourceTxids
 
   const hydrateStartedAt = Date.now()
-  const hydrated: Transaction[] = []
-  for (const sourceTxid of txidsToHydrate) {
-    hydrated.push(await hydrateTransaction(sourceTxid, cache, preparedParents))
-  }
+  const inFlight = new Map<string, Promise<Transaction>>()
+  const hydrated = await Promise.all(
+    txidsToHydrate.map((sourceTxid) => hydrateTransaction(sourceTxid, cache, preparedParents, inFlight))
+  )
   const hydrateMs = Date.now() - hydrateStartedAt
 	const hydratedByTxid = new Map(txidsToHydrate.map((sourceTxid, index) => [sourceTxid, hydrated[index]]))
   tx.inputs.forEach((input, i) => {
@@ -679,25 +720,30 @@ export async function buildCachedBeefFromRawTx(
   const serializeStartedAt = Date.now()
 	const beef = transactionToHexAtomicBeef(tx, seedBeef ?? undefined)
   const serializeBeefMs = Date.now() - serializeStartedAt
+  const timings = {
+    parseRawTxMs,
+    overlayParentBeefFetchMs,
+    overlayParentBeefSource,
+    hydrateMs,
+    serializeBeefMs,
+    elapsedMs: Date.now() - startedAt,
+    overlaySeededInputTxidCount,
+    hydratedInputTxidCount: txidsToHydrate.length,
+    preparedFundingParentCount: preparedParents.size,
+  }
+
   console.log('[beef-cache] built broadcast beef', {
     txid: tx.id('hex'),
     inputCount: tx.inputs.length,
 		ignoredKnownTxidCount,
     overlaySeedUsed: Boolean(seedBeef),
-    overlayParentBeefSource,
-    overlayParentBeefFetchMs,
-    overlaySeededInputTxidCount,
-    preparedFundingParentCount: preparedParents.size,
-		hydratedInputTxidCount: txidsToHydrate.length,
     beefLength: beef.length,
-    parseRawTxMs,
-    hydrateMs,
-    serializeBeefMs,
-    elapsedMs: Date.now() - startedAt,
+    ...timings,
   })
 
   return {
     beef,
+    timings,
   }
 }
 

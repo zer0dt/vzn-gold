@@ -8,6 +8,11 @@ import {
   persistBroadcastTransaction,
   type PreparedFundingParent,
 } from '@/app/lib/beef-cache'
+import {
+  LockLikeSubmitError,
+  persistLockLikeForCurrentUser,
+  type SubmitLockLikeRequest,
+} from '@/app/lib/lock-like-submit'
 import { submitBeefToOverlay } from '@/app/lib/overlay-submit'
 
 export const dynamic = 'force-dynamic'
@@ -53,6 +58,7 @@ export async function POST(request: Request) {
       responseFormat,
       submitOverlay,
       topics,
+      likeSubmit,
     } = await request.json()
 
     if (!rawtx && Array.isArray(fundingParentTxids)) {
@@ -121,6 +127,11 @@ export async function POST(request: Request) {
       const tSubmit0 = Date.now()
       const submitResult = await submitBeefToOverlay(data.beef, topics ?? overlayTopic)
       const overlaySubmitMs = Date.now() - tSubmit0
+      const timings = {
+        ...data.timings,
+        buildBeefMs,
+        overlaySubmitMs,
+      }
 
       console.log('[beef-cache] built and submitted broadcast beef', {
         txid: submitResult.txid,
@@ -128,8 +139,7 @@ export async function POST(request: Request) {
         overlayOk: submitResult.ok,
         topics: submitResult.topics,
         beefLength: data.beef.length,
-        buildBeefMs,
-        overlaySubmitMs,
+        timings,
       })
 
       if (!submitResult.ok) {
@@ -139,13 +149,54 @@ export async function POST(request: Request) {
             txid: submitResult.txid,
             topics: submitResult.topics,
             overlay: submitResult.overlay,
-            timings: {
-              buildBeefMs,
-              overlaySubmitMs,
-            },
+            timings,
           },
           { status: submitResult.status }
         )
+      }
+
+      if (likeSubmit && typeof likeSubmit === 'object') {
+        const tLikePersist0 = Date.now()
+        try {
+          const persistedLike = await persistLockLikeForCurrentUser({
+            ...(likeSubmit as SubmitLockLikeRequest),
+            txid: submitResult.txid,
+            rawtx,
+          })
+          const likePersistMs = Date.now() - tLikePersist0
+
+          return NextResponse.json(
+            {
+              txid: submitResult.txid,
+              topics: submitResult.topics,
+              overlay: submitResult.overlay,
+              like: persistedLike.like,
+              timings: {
+                ...timings,
+                likePersistMs,
+              },
+            },
+            { status: persistedLike.status === 201 ? 201 : 200 }
+          )
+        } catch (error) {
+          const likePersistMs = Date.now() - tLikePersist0
+          const message = error instanceof Error ? error.message : 'Failed to persist like'
+          const status = error instanceof LockLikeSubmitError ? error.status : 500
+          return NextResponse.json(
+            {
+              error: message,
+              txid: submitResult.txid,
+              topics: submitResult.topics,
+              overlay: submitResult.overlay,
+              overlayAccepted: true,
+              timings: {
+                ...timings,
+                likePersistMs,
+              },
+            },
+            { status }
+          )
+        }
       }
 
       return NextResponse.json(
@@ -153,10 +204,7 @@ export async function POST(request: Request) {
           txid: submitResult.txid,
           topics: submitResult.topics,
           overlay: submitResult.overlay,
-          timings: {
-            buildBeefMs,
-            overlaySubmitMs,
-          },
+          timings,
         },
         { status: 201 }
       )

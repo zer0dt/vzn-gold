@@ -28,6 +28,7 @@ type OverlayMinterResponse = {
   supply?: string;
   overlayAmount?: string;
   candidateCount?: number;
+  timings?: Record<string, unknown>;
 };
 
 type PaymentUtxo = {
@@ -51,6 +52,19 @@ type FundingParentPrefetchResponse = {
   skipped?: Array<{ txid: string; reason: string }>;
   elapsedMs?: number;
 };
+
+type AvailablePaymentUtxo = {
+  satoshis: number;
+  txid: string;
+  vout: number;
+  confirmed: boolean;
+  height: number | null;
+  confirmations: number | null;
+};
+
+type FundingUtxoPrefetchResult =
+  | { utxos: AvailablePaymentUtxo[]; error?: never }
+  | { utxos?: never; error: unknown };
 
 type PendingMintFundingReservation = {
   key: string;
@@ -204,20 +218,24 @@ function releasePendingMintContractOutpointKey(key: string | null): void {
   writePendingMintContractReservations(reservations);
 }
 
-async function fetchFreshBlockHeight(): Promise<number> {
-  const response = await fetch('/api/block-height?fresh=1', {
+async function fetchBlockHeight(preferredBlockHeight?: number): Promise<number> {
+  if (typeof preferredBlockHeight === 'number' && preferredBlockHeight > 0) {
+    return preferredBlockHeight;
+  }
+
+  const response = await fetch('/api/block-height', {
     cache: 'no-store',
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch fresh block height: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to fetch block height: ${response.status} ${response.statusText}`);
   }
 
   const data = await response.json();
   const latestBlockHeight = data.height || data.blocks || data.blockHeight || 0;
 
   if (typeof latestBlockHeight !== 'number' || latestBlockHeight <= 0) {
-    throw new Error('Fresh block height response is invalid');
+    throw new Error('Block height response is invalid');
   }
 
   return latestBlockHeight;
@@ -227,6 +245,7 @@ export async function handleConfirmLockAction(params: {
   satsToLock: number;
   blocksToLock: number;
   post: PostType;
+  blockHeight?: number;
   supabase: any;
   queryClient: any;
   toast: ToastFunction;
@@ -240,6 +259,7 @@ export async function handleConfirmLockAction(params: {
     satsToLock,
     blocksToLock,
     post,
+    blockHeight,
     supabase,
     queryClient,
     toast,
@@ -291,6 +311,10 @@ export async function handleConfirmLockAction(params: {
   let reservedContractOutpointKey: string | null = null;
   let keepFundingReservations = false;
   let keepContractReservation = false;
+  const mintId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const mintStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const mintStartedAtIso = new Date().toISOString();
   let lastMintTimingAt = mintStartedAt;
@@ -307,6 +331,7 @@ export async function handleConfirmLockAction(params: {
     return timing;
   };
   console.log('[mint-beef] mint start', {
+    mintId,
     startedAt: mintStartedAtIso,
     timing: mintTiming(undefined, { mark: false }),
   });
@@ -332,11 +357,13 @@ export async function handleConfirmLockAction(params: {
       }
 
       console.log('[mint-beef] selected overlay minter', {
+        mintId,
         txid: data.txid,
         outputIndex: data.outputIndex,
         supply: data.supply,
         overlayAmount: data.overlayAmount,
         candidateCount: data.candidateCount,
+        serverTimings: data.timings,
         rawtxLength: data.rawtx.length,
         timing: mintTiming(tMinter0),
       });
@@ -349,11 +376,127 @@ export async function handleConfirmLockAction(params: {
       throw new Error('LLM-21 origin not configured');
     }
 
+    const fundingAddress = walletContext.walletAddress;
+    let fundingParentPrefetchPromise: Promise<FundingParentPrefetchResponse> | null = null;
+    const startFundingParentPrefetch = (
+      fundingParentTxids: string[],
+      phase: 'early' | 'exact'
+    ): Promise<FundingParentPrefetchResponse> => {
+      const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      console.log('[mint-beef] funding parent prefetch start', {
+        mintId,
+        phase,
+        fundingParentTxids,
+        timing: mintTiming(undefined, { mark: false }),
+      });
+
+      return (async () => {
+        try {
+          const res = await fetch('/api/beef-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fundingParentTxids }),
+          });
+          const elapsedMs = Math.round(
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+          );
+          if (!res.ok) {
+            console.warn('[mint-beef] funding parent prefetch failed', {
+              mintId,
+              phase,
+              status: res.status,
+              statusText: res.statusText,
+              elapsedMs,
+            });
+            return { parents: [], skipped: [], elapsedMs };
+          }
+          const body = (await res.json()) as FundingParentPrefetchResponse;
+          return {
+            parents: Array.isArray(body.parents) ? body.parents : [],
+            skipped: Array.isArray(body.skipped) ? body.skipped : [],
+            elapsedMs,
+          };
+        } catch (error) {
+          const elapsedMs = Math.round(
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+          );
+          console.warn('[mint-beef] funding parent prefetch threw', {
+            mintId,
+            phase,
+            error,
+            elapsedMs,
+          });
+          return { parents: [], skipped: [], elapsedMs };
+        }
+      })();
+    };
+
+    const tFundingFetch0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const walletPaymentModulePromise = import('@/app/lib/wallet-payment');
+    const availableFundingUtxosPromise: Promise<FundingUtxoPrefetchResult> = walletPaymentModulePromise
+      .then(({ fetchAvailablePaymentUTXOs }) =>
+        (fetchAvailablePaymentUTXOs(fundingAddress) as Promise<AvailablePaymentUtxo[]>).then((utxos) => ({ utxos }))
+      )
+      .catch((error) => ({ error }));
+    console.log('[mint-beef] funding UTXOs prefetch start', {
+      mintId,
+      fundingAddress,
+      timing: mintTiming(undefined, { mark: false }),
+    });
+    const earlyFundingParentPrefetchPromise = Promise.all([
+      walletPaymentModulePromise,
+      availableFundingUtxosPromise,
+    ])
+      .then(([{ selectPaymentUTXOs }, availableResult]) => {
+        if ('error' in availableResult) {
+          return null;
+        }
+
+        // The exact requirement adds only the contract's small non-lock outputs to this value.
+        // If that changes the selected coin, the exact-selection path below starts a replacement prefetch.
+        const preliminaryRequiredSatoshis = Math.max(
+          1,
+          satsToLock + MINT_FUNDING_INPUT_HEADROOM_SATS
+        );
+        const preliminaryUtxos = selectPaymentUTXOs(
+          fundingAddress,
+          preliminaryRequiredSatoshis,
+          availableResult.utxos,
+          getPendingMintFundingOutpointKeys()
+        ) as PaymentUtxo[];
+        if (preliminaryUtxos.length === 0) {
+          return null;
+        }
+
+        const outpointKeys = preliminaryUtxos.map((utxo) =>
+          toFundingOutpointKey(utxo.txId, utxo.outputIndex)
+        );
+        const fundingParentTxids = Array.from(
+          new Set(preliminaryUtxos.map((utxo) => utxo.txId).filter(Boolean))
+        );
+        return {
+          outpointKeys,
+          fundingParentTxids,
+          prefetchPromise: startFundingParentPrefetch(fundingParentTxids, 'early'),
+        };
+      })
+      .catch((error) => {
+        console.warn('[mint-beef] early funding parent selection failed', { mintId, error });
+        return null;
+      });
+
+    const tInitialLookup0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const [, latestBlockHeight, selectedMinter] = await Promise.all([
       ensureLlmArtifactLoaded(),
-      fetchFreshBlockHeight(),
+      fetchBlockHeight(blockHeight),
       fetchLiveMinterFromOverlay(originId),
     ]);
+    console.log('[mint-beef] initial lookup complete', {
+      mintId,
+      latestBlockHeight,
+      usedPropBlockHeight: typeof blockHeight === 'number' && blockHeight > 0,
+      timing: mintTiming(tInitialLookup0),
+    });
 
     const tOverlayMinterBeef0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const overlayMinterBeefPrefetchPromise = (async (): Promise<{
@@ -372,6 +515,7 @@ export async function handleConfirmLockAction(params: {
         );
         if (!res.ok) {
           console.warn('[mint-beef] overlay minter BEEF prefetch failed', {
+            mintId,
             status: res.status,
             statusText: res.statusText,
             elapsedMs,
@@ -386,6 +530,7 @@ export async function handleConfirmLockAction(params: {
           beefBase64Chars?: number;
         };
         console.log('[mint-beef] overlay minter BEEF prefetch ok', {
+          mintId,
           elapsedMs: body.elapsedMs ?? elapsedMs,
           beefBase64Chars: body.beefBase64Chars ?? 0,
           prefetched: Boolean(body.prefetched),
@@ -402,7 +547,7 @@ export async function handleConfirmLockAction(params: {
         const elapsedMs = Math.round(
           (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tOverlayMinterBeef0
         );
-        console.warn('[mint-beef] overlay minter BEEF prefetch threw', { error, elapsedMs });
+        console.warn('[mint-beef] overlay minter BEEF prefetch threw', { mintId, error, elapsedMs });
         return { prefetched: false, elapsedMs };
       }
     })();
@@ -466,6 +611,7 @@ export async function handleConfirmLockAction(params: {
       {
         lockTime: latestBlockHeight,
         sequence: 0xfffffffe,
+        changeAddress: fundingAddress,
       } as MethodCallOptions<any>,
       lockPkh,
       rewardPkh,
@@ -475,13 +621,12 @@ export async function handleConfirmLockAction(params: {
     );
 
     let fundingAdded = false;
-    let fundingParentPrefetchPromise: Promise<FundingParentPrefetchResponse> | null = null;
     try {
       const tFunding0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const fundingAddress = walletContext.walletAddress;
-      const { getPaymentUTXOs } = await import('@/app/lib/wallet-payment');
+      const { selectPaymentUTXOs } = await walletPaymentModulePromise;
       const excludedOutpointsBeforeFundingFetch = getPendingMintFundingOutpointKeys();
-      console.log('[mint-beef] funding UTXOs fetch start', {
+      console.log('[mint-beef] funding UTXOs select start', {
+        mintId,
         excludedPendingOutpointCount: excludedOutpointsBeforeFundingFetch.length,
         fundingAddress,
         timing: mintTiming(undefined, { mark: false }),
@@ -491,11 +636,25 @@ export async function handleConfirmLockAction(params: {
         1,
         outputSatoshis - fromUTXO.satoshis + MINT_FUNDING_INPUT_HEADROOM_SATS
       );
-      const fundingUtxos = (await getPaymentUTXOs(
+      const availableFundingUtxosResult = await availableFundingUtxosPromise;
+      if ('error' in availableFundingUtxosResult) {
+        throw availableFundingUtxosResult.error;
+      }
+      const availableFundingUtxos = availableFundingUtxosResult.utxos;
+      console.log('[mint-beef] funding UTXOs prefetch ready', {
+        mintId,
+        availableCount: availableFundingUtxos.length,
+        waitMs: Math.round(
+          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tFundingFetch0
+        ),
+        timing: mintTiming(undefined, { mark: false }),
+      });
+      const fundingUtxos = selectPaymentUTXOs(
         fundingAddress,
         requiredFundingSatoshis,
+        availableFundingUtxos,
         getPendingMintFundingOutpointKeys()
-      )) as PaymentUtxo[];
+      ) as PaymentUtxo[];
 
       if (!fundingUtxos.length) {
         setProgress(0);
@@ -509,48 +668,32 @@ export async function handleConfirmLockAction(params: {
       }
 
       const fundingParentTxids = Array.from(new Set(fundingUtxos.map((utxo) => utxo.txId).filter(Boolean)));
-      const tFundingParentPrefetch0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      console.log('[mint-beef] funding parent prefetch start', {
-        fundingParentTxids,
-        timing: mintTiming(undefined, { mark: false }),
-      });
-      fundingParentPrefetchPromise = (async () => {
-        try {
-          const res = await fetch('/api/beef-cache', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fundingParentTxids }),
-          });
-          const elapsedMs = Math.round(
-            (typeof performance !== 'undefined' ? performance.now() : Date.now()) -
-              tFundingParentPrefetch0
-          );
-          if (!res.ok) {
-            console.warn('[mint-beef] funding parent prefetch failed', {
-              status: res.status,
-              statusText: res.statusText,
-              elapsedMs,
-            });
-            return { parents: [], skipped: [], elapsedMs };
-          }
-          const body = (await res.json()) as FundingParentPrefetchResponse;
-          return {
-            parents: Array.isArray(body.parents) ? body.parents : [],
-            skipped: Array.isArray(body.skipped) ? body.skipped : [],
-            elapsedMs,
-          };
-        } catch (error) {
-          const elapsedMs = Math.round(
-            (typeof performance !== 'undefined' ? performance.now() : Date.now()) -
-              tFundingParentPrefetch0
-          );
-          console.warn('[mint-beef] funding parent prefetch threw', {
-            error,
-            elapsedMs,
-          });
-          return { parents: [], skipped: [], elapsedMs };
-        }
-      })();
+      const exactOutpointKeys = fundingUtxos
+        .map((utxo) => toFundingOutpointKey(utxo.txId, utxo.outputIndex))
+        .sort();
+      const earlyPrefetch = await earlyFundingParentPrefetchPromise;
+      const earlyOutpointKeys = earlyPrefetch?.outpointKeys.slice().sort() ?? [];
+      const canReuseEarlyPrefetch =
+        earlyPrefetch !== null &&
+        earlyOutpointKeys.length === exactOutpointKeys.length &&
+        earlyOutpointKeys.every((key, index) => key === exactOutpointKeys[index]);
+
+      if (canReuseEarlyPrefetch) {
+        fundingParentPrefetchPromise = earlyPrefetch.prefetchPromise;
+        console.log('[mint-beef] funding parent prefetch reused', {
+          mintId,
+          fundingParentTxids,
+          timing: mintTiming(undefined, { mark: false }),
+        });
+      } else {
+        fundingParentPrefetchPromise = startFundingParentPrefetch(fundingParentTxids, 'exact');
+        console.log('[mint-beef] funding parent prefetch selection changed', {
+          mintId,
+          earlyFundingParentTxids: earlyPrefetch?.fundingParentTxids ?? [],
+          fundingParentTxids,
+          timing: mintTiming(undefined, { mark: false }),
+        });
+      }
 
       reservedFundingOutpointKeys = fundingUtxos.map((utxo) => {
         return toFundingOutpointKey(utxo.txId, utxo.outputIndex);
@@ -564,6 +707,7 @@ export async function handleConfirmLockAction(params: {
 
       const fundingSatSum = fundingUtxos.reduce((sum, u) => sum + u.satoshis, 0);
       console.log('[mint-beef] funding UTXOs attached', {
+        mintId,
         count: fundingUtxos.length,
         fundingSatSum,
         requiredFundingSatoshis,
@@ -642,6 +786,7 @@ export async function handleConfirmLockAction(params: {
         ? await fundingParentPrefetchPromise
         : { parents: [], skipped: [], elapsedMs: 0 };
       console.log('[mint-beef] funding parent prefetch ready', {
+        mintId,
         parentCount: prefetchedFundingParents.parents.length,
         skippedCount: prefetchedFundingParents.skipped?.length ?? 0,
         prefetchElapsedMs: prefetchedFundingParents.elapsedMs ?? 0,
@@ -653,6 +798,7 @@ export async function handleConfirmLockAction(params: {
       });
       const overlayMinterBeefPrefetch = await overlayMinterBeefPrefetchPromise;
       console.log('[mint-beef] beef-cache build+submit POST start', {
+        mintId,
         rawtxChars: rawtx.length,
         selectedMinterTxid: selectedMinter.txid,
         prefetchedFundingParentCount: prefetchedFundingParents.parents.length,
@@ -672,43 +818,104 @@ export async function handleConfirmLockAction(params: {
           fundingParents: prefetchedFundingParents.parents,
           submitOverlay: true,
           topics: [overlayTopic],
+          likeSubmit: {
+            contractId: originId,
+            contractInputTxid: selectedMinter.txid,
+            contractInputVout: selectedMinter.outputIndex,
+            contractOutputVout: nextContractOutputIndex ?? null,
+            postTxid: post.txid,
+            satsAmount: contractSats,
+            blocksLocked: contractBlocks,
+            blockHeight: latestBlockHeight,
+            unlockHeight: latestBlockHeight + contractBlocks,
+            rewardAmount: Number(latestContract.calculateReward(lockAmount)),
+          },
         }),
       });
       const tBeefSubmit1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-      if (!res.ok) {
-        const errorData = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-        console.warn('[mint-beef] beef-cache build+submit failed', {
-          status: res.status,
-          statusText: res.statusText,
-          ms: Math.round(tBeefSubmit1 - tBeefSubmit0),
-          response: errorData,
-        });
-        const broadcastError =
-          typeof (errorData.overlay as { message?: unknown } | undefined)?.message === 'string'
-              ? ((errorData.overlay as { message: string }).message)
-            : typeof (errorData.overlay as { error?: unknown } | undefined)?.error === 'string'
-              ? ((errorData.overlay as { error: string }).error)
-            : typeof errorData.error === 'string'
-              ? errorData.error
-              : undefined;
-        throw new Error(
-          broadcastError ?? `Overlay submit failed: ${res.status} ${res.statusText}`
-        );
-      }
-
-      const data = (await res.json()) as {
+      const data = (await res.json().catch(() => ({}))) as {
         txid?: string
         overlay?: unknown
         topics?: string[]
+        like?: { txid: string } & Record<string, unknown>
+        error?: string
+        overlayAccepted?: boolean
         timings?: {
           buildBeefMs?: number
           overlaySubmitMs?: number
+          likePersistMs?: number
+          [key: string]: unknown
         }
       };
-      txid = typeof data.txid === 'string' ? data.txid : '';
+
+      if (!res.ok) {
+        console.warn('[mint-beef] beef-cache build+submit failed', {
+          mintId,
+          status: res.status,
+          statusText: res.statusText,
+          ms: Math.round(tBeefSubmit1 - tBeefSubmit0),
+          response: data,
+        });
+        if (data.overlayAccepted && typeof data.txid === 'string') {
+          const tRecovery0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          const recoveryResponse = await fetch('/api/likes/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              txid: data.txid,
+              rawtx,
+              contractId: originId,
+              contractInputTxid: selectedMinter.txid,
+              contractInputVout: selectedMinter.outputIndex,
+              contractOutputVout: nextContractOutputIndex ?? null,
+              postTxid: post.txid,
+              satsAmount: contractSats,
+              blocksLocked: contractBlocks,
+              blockHeight: latestBlockHeight,
+              unlockHeight: latestBlockHeight + contractBlocks,
+              rewardAmount: Number(latestContract.calculateReward(lockAmount)),
+            }),
+          });
+          const recoveryBody = (await recoveryResponse.json().catch(() => ({}))) as {
+            like?: { txid: string } & Record<string, unknown>;
+            error?: string;
+          };
+          console.log('[mint-beef] like persistence recovery', {
+            mintId,
+            txid: data.txid,
+            status: recoveryResponse.status,
+            ok: recoveryResponse.ok,
+            timing: mintTiming(tRecovery0),
+          });
+          if (recoveryResponse.ok && recoveryBody.like) {
+            txid = data.txid;
+            newLikeData = recoveryBody.like;
+          } else {
+            throw new Error(recoveryBody.error || data.error || 'Failed to persist like after overlay submit');
+          }
+        } else {
+          const broadcastError =
+            typeof (data.overlay as { message?: unknown } | undefined)?.message === 'string'
+                ? ((data.overlay as { message: string }).message)
+              : typeof (data.overlay as { error?: unknown } | undefined)?.error === 'string'
+                ? ((data.overlay as { error: string }).error)
+              : typeof data.error === 'string'
+                ? data.error
+                : undefined;
+          throw new Error(
+            broadcastError ?? `Overlay submit failed: ${res.status} ${res.statusText}`
+          );
+        }
+      }
+
+      if (!newLikeData) {
+        txid = typeof data.txid === 'string' ? data.txid : '';
+        newLikeData = data.like ?? null;
+      }
 
       console.log('[mint-beef] beef-cache build+submit ok', {
+        mintId,
         txid,
         httpStatus: res.status,
         overlay: data.overlay,
@@ -721,6 +928,9 @@ export async function handleConfirmLockAction(params: {
       if (!txid) {
         throw new Error('No TXID returned from overlay submit');
       }
+      if (!newLikeData) {
+        throw new Error('No persisted like returned from overlay submit');
+      }
 
       setProgress(80);
       keepFundingReservations = true;
@@ -732,38 +942,6 @@ export async function handleConfirmLockAction(params: {
         });
       }
 
-      const submitLikeResponse = await fetch('/api/likes/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          txid,
-          rawtx,
-          contractId: originId,
-          contractInputTxid: selectedMinter.txid,
-          contractInputVout: selectedMinter.outputIndex,
-          contractOutputVout: nextContractOutputIndex ?? null,
-          postTxid: post.txid,
-          satsAmount: contractSats,
-          blocksLocked: contractBlocks,
-          blockHeight: latestBlockHeight,
-          unlockHeight: latestBlockHeight + contractBlocks,
-          rewardAmount: Number(latestContract.calculateReward(lockAmount)),
-        }),
-      });
-
-      const submitLikeBody = (await submitLikeResponse.json().catch(() => ({}))) as {
-        like?: { txid: string } & Record<string, unknown>;
-        error?: string;
-      };
-
-      if (!submitLikeResponse.ok || !submitLikeBody.like) {
-        throw new Error(
-          submitLikeBody.error ||
-            `Failed to persist like: ${submitLikeResponse.status} ${submitLikeResponse.statusText}`
-        );
-      }
-
-      newLikeData = submitLikeBody.like;
     } catch (e: any) {
       console.warn('mint - broadcast failed:', e);
       toast({
