@@ -71,6 +71,13 @@ const VAULT_SHORT_TXID = {
   fullWhenLengthAtMost: 18,
 } as const;
 
+/** Shorter txids in the vault table so columns fit without horizontal scroll. */
+const VAULT_TABLE_SHORT_TXID = {
+  headChars: 8,
+  tailChars: 4,
+  fullWhenLengthAtMost: 14,
+} as const;
+
 function vaultUnlockPhaseCopy(
   phase: VaultUnlockPhase,
   dbRecordIndex: number,
@@ -698,45 +705,46 @@ export default function VaultContent({
     const displayLikes = limit ? sortedLikes.slice(0, limit) : sortedLikes;
 
     return (
-      <Table>
+      <Table className="table-fixed w-full">
         <TableHeader>
           <TableRow>
-            <TableHead className="whitespace-nowrap w-20 sm:w-32 text-[10px] sm:text-sm p-1 sm:p-4">
+            <TableHead className="w-[34%] text-[10px] sm:text-sm px-1.5 sm:px-3">
               Transaction
             </TableHead>
-            <TableHead className="whitespace-nowrap w-16 sm:w-24 text-[10px] sm:text-sm p-1 sm:p-4">
+            <TableHead className="w-[22%] text-[10px] sm:text-sm px-1.5 sm:px-3">
               <Button
                 variant="ghost"
                 onClick={() => handleSort("sats_amount")}
-                className="flex items-center gap-1 h-auto p-0 text-[10px] sm:text-sm"
+                className="flex items-center gap-0.5 h-auto p-0 text-[10px] sm:text-sm max-w-full"
               >
-                Amount
-                <ArrowUpDown className="h-2 w-2 sm:h-4 sm:w-4" />
+                <span className="truncate">Amount</span>
+                <ArrowUpDown className="h-2 w-2 sm:h-3.5 sm:w-3.5 shrink-0" />
               </Button>
             </TableHead>
-            <TableHead className="whitespace-nowrap w-16 sm:w-24 text-[10px] sm:text-sm p-1 sm:p-4">
+            <TableHead className="w-[24%] text-[10px] sm:text-sm px-1.5 sm:px-3">
               {tableType === "still-locked" ? (
                 <Button
                   variant="ghost"
                   onClick={() => handleSort("unlock_height")}
-                  className="flex items-center gap-1 h-auto p-0 text-[10px] sm:text-sm"
+                  className="flex items-center gap-0.5 h-auto p-0 text-[10px] sm:text-sm max-w-full"
                 >
-                  Status
-                  <ArrowUpDown className="h-2 w-2 sm:h-4 sm:w-4" />
+                  <span className="truncate">Status</span>
+                  <ArrowUpDown className="h-2 w-2 sm:h-3.5 sm:w-3.5 shrink-0" />
                 </Button>
               ) : (
                 <span className="text-[10px] sm:text-sm">Status</span>
               )}
             </TableHead>
-            <TableHead className="whitespace-nowrap w-14 sm:w-20 text-[10px] sm:text-sm p-1 sm:p-4">
-              USD Value
+            <TableHead className="w-[20%] text-[10px] sm:text-sm px-1.5 sm:px-3">
+              <span className="sm:hidden">USD</span>
+              <span className="hidden sm:inline">USD Value</span>
             </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {displayLikes.map((like) => (
             <TableRow key={like.txid}>
-              <TableCell className="min-w-0 w-20 sm:w-32 p-1 sm:p-4">
+              <TableCell className="min-w-0 px-1.5 sm:px-3 py-2">
                 <a
                   href={wocTxUrl(like.txid)}
                   target="_blank"
@@ -744,19 +752,25 @@ export default function VaultContent({
                   className="text-[10px] sm:text-sm font-mono text-muted-foreground hover:text-amber-600 dark:hover:text-amber-300 transition-colors block truncate"
                   title={like.txid}
                 >
-                  {formatShortTxid(like.txid, VAULT_SHORT_TXID)}
+                  {formatShortTxid(like.txid, VAULT_TABLE_SHORT_TXID)}
                 </a>
               </TableCell>
-              <TableCell className="font-medium text-[10px] sm:text-sm whitespace-nowrap w-16 sm:w-24 p-1 sm:p-4">
-                {formatSatsAbbreviated(like.sats_amount)} sats
+              <TableCell className="font-medium text-[10px] sm:text-sm px-1.5 sm:px-3 py-2 tabular-nums">
+                <span className="block truncate">
+                  {formatSatsAbbreviated(like.sats_amount)} sats
+                </span>
               </TableCell>
-              <TableCell className="text-[10px] sm:text-sm whitespace-nowrap w-16 sm:w-24 p-1 sm:p-4">
-                {tableType === "still-locked"
-                  ? `${getBlocksUntilUnlock(like.unlock_height)} blocks`
-                  : "Unlockable"}
+              <TableCell className="text-[10px] sm:text-sm px-1.5 sm:px-3 py-2">
+                <span className="block truncate">
+                  {tableType === "still-locked"
+                    ? `${getBlocksUntilUnlock(like.unlock_height)} blocks`
+                    : "Unlockable"}
+                </span>
               </TableCell>
-              <TableCell className="text-muted-foreground text-[10px] sm:text-sm whitespace-nowrap w-14 sm:w-20 p-1 sm:p-4">
-                {formatSatsToUSD(like.sats_amount, bsvPrice)}
+              <TableCell className="text-muted-foreground text-[10px] sm:text-sm px-1.5 sm:px-3 py-2 tabular-nums">
+                <span className="block truncate">
+                  {formatSatsToUSD(like.sats_amount, bsvPrice)}
+                </span>
               </TableCell>
             </TableRow>
           ))}
@@ -881,8 +895,8 @@ export default function VaultContent({
         <Card className="w-full rounded-2xl border-border/60 bg-background/60 backdrop-blur shadow-none">
           <CardContent className="space-y-2 p-2 sm:p-6">
             <div className="rounded-xl border border-border/60 overflow-hidden h-[300px] sm:h-[400px] bg-background/40 backdrop-blur">
-              <div className="overflow-x-auto h-full">
-                <div className="w-full min-w-[350px] sm:min-w-[500px] h-full">
+              <div className="h-full overflow-y-auto overflow-x-hidden">
+                <div className="w-full max-w-full h-full">
                   {activeView === "locked" ? (
                     stillLockedLikes.length > 0 ? (
                       renderLikesTable(stillLockedLikes, "still-locked")
