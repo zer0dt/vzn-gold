@@ -21,6 +21,8 @@ export type ProfileFeedPage = {
   nextPage: number | null
 }
 
+type HydratedLike = NonNullable<HydratedPost['likes']>[number]
+
 const optimisticReplyCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export const MAIN_FEED_PAGE_SIZE = 5
@@ -230,6 +232,61 @@ export function syncReplyCountAcrossPostCaches(
   queryClient.setQueryData<HydratedPost | null>(
     singlePostQueryKeys.byTxid(postTxid),
     (oldData) => incrementReplyCountInPostData(oldData, postTxid, delta)
+  )
+}
+
+function appendLikeToPost(
+  post: HydratedPost,
+  postTxid: string,
+  like: HydratedLike
+): HydratedPost {
+  if (post.txid !== postTxid || post.likes?.some((existing) => existing.txid === like.txid)) {
+    return post
+  }
+
+  return {
+    ...post,
+    likes: [like, ...(post.likes ?? [])],
+  }
+}
+
+export function syncLikeAcrossPostCaches(
+  queryClient: QueryClient,
+  postTxid: string,
+  like: HydratedLike
+) {
+  queryClient.setQueriesData<InfiniteData<HydratedPost[], number>>(
+    { queryKey: ['posts'] },
+    (oldData) => {
+      if (!oldData) return oldData
+      return {
+        ...oldData,
+        pages: oldData.pages.map((page) =>
+          Array.isArray(page)
+            ? page.map((post) => appendLikeToPost(post, postTxid, like))
+            : page
+        ),
+      }
+    }
+  )
+
+  queryClient.setQueriesData<InfiniteData<ProfileFeedPage, number>>(
+    { queryKey: ['user-posts'] },
+    (oldData) => {
+      if (!oldData) return oldData
+      return {
+        ...oldData,
+        pages: oldData.pages.map((page) => ({
+          ...page,
+          data: page.data.map((post) => appendLikeToPost(post, postTxid, like)),
+        })),
+      }
+    }
+  )
+
+  queryClient.setQueryData<HydratedPost | null>(
+    singlePostQueryKeys.byTxid(postTxid),
+    (oldData) => oldData ? appendLikeToPost(oldData, postTxid, like) : oldData
   )
 }
 

@@ -8,13 +8,76 @@ import { Button } from "@/app/components/ui/button"
 import { formatCompactSupply } from "@/app/lib/formatCompactSupply"
 import { formatTokenTicker } from "@/app/lib/formatTokenTicker"
 import { useNetworkStats } from "@/app/hooks/use-network-stats"
+import { useRealtimeUpdates } from "@/app/hooks/useRealtimeUpdates"
+
+type MintedLikeRecord = {
+  contract_id?: string | null
+  reward_amount?: number | string | null
+  [key: string]: unknown
+}
 
 // Wrap the panel content in a separate component
 function NetworkStatsPanelContent() {
   const { blockHeight } = useBlockHeightContext();
   const { bsvPrice, isLoading: isPriceLoading } = useBSVPrice();
-  const { data, isLoading: isMintedSupplyLoading, refetch } = useNetworkStats();
+  const {
+    data,
+    isLoading: isMintedSupplyLoading,
+    refetch,
+    applyMintedDelta,
+  } = useNetworkStats({ refreshOnMount: true });
   const refreshMintedSupply = React.useCallback(() => refetch({ refresh: true }), [refetch]);
+  const reconciliationTimersRef = React.useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  const reconcileMintedSupply = React.useCallback(() => {
+    void refetch({ refresh: true, silent: true });
+  }, [refetch]);
+
+  const handleMintedLike = React.useCallback((like: MintedLikeRecord) => {
+    const configuredContractId = process.env.NEXT_PUBLIC_LLM21_ORIGIN_ID;
+    if (!configuredContractId || like.contract_id !== configuredContractId) {
+      return;
+    }
+
+    const rewardAmount =
+      typeof like.reward_amount === 'number'
+        ? like.reward_amount
+        : typeof like.reward_amount === 'string'
+          ? Number(like.reward_amount)
+          : 0;
+
+    if (Number.isFinite(rewardAmount) && rewardAmount > 0) {
+      applyMintedDelta(rewardAmount);
+    }
+
+    reconciliationTimersRef.current.forEach(clearTimeout);
+    reconciliationTimersRef.current = [
+      setTimeout(reconcileMintedSupply, 750),
+      setTimeout(reconcileMintedSupply, 2500),
+    ];
+  }, [applyMintedDelta, reconcileMintedSupply]);
+
+  useRealtimeUpdates<MintedLikeRecord>('likes', handleMintedLike);
+
+  React.useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        reconcileMintedSupply();
+      }
+    };
+    const interval = window.setInterval(refreshWhenVisible, 10_000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      reconciliationTimersRef.current.forEach(clearTimeout);
+      reconciliationTimersRef.current = [];
+    };
+  }, [reconcileMintedSupply]);
+
   const tokenTicker = data ? formatTokenTicker(data.symbol) : '';
   
   return (

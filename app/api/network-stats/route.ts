@@ -177,7 +177,9 @@ export async function GET(request: Request) {
       mintedSupply,
       {
         headers: {
-          'Cache-Control': 's-maxage=60, stale-while-revalidate=300',
+          'Cache-Control': shouldRefresh
+            ? 'no-store, no-cache, must-revalidate, max-age=0'
+            : 's-maxage=60, stale-while-revalidate=300',
         },
       }
     )

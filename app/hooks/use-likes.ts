@@ -32,7 +32,8 @@ export function useLikes({ userId, tab, blockHeight, enabled = true }: UseLikesP
         user_id: userId,
         tab,
         block_height: blockHeight.toString(),
-        with_posts: 'false' // We don't need post data for the vault
+        with_posts: 'false', // We don't need post data for the vault
+        limit: '1000',
       })
 
       const response = await fetch(`/api/likes?${params}`)

@@ -4,6 +4,7 @@ import { PrivateKey, Hash } from '@bsv/sdk';
 import { LockLikeMintBSV21Parallel } from '@/src/contracts/LockLikeMintBSV21Parallel';
 import llmArtifact from '@/artifacts/LockLikeMintBSV21Parallel.json';
 import type { Post as PostType } from '@/types';
+import { syncLikeAcrossPostCaches, type HydratedPost } from '@/app/lib/supabase/posts';
 
 let llmArtifactLoadPromise: Promise<unknown> | null = null;
 function ensureLlmArtifactLoaded(): Promise<unknown> {
@@ -957,25 +958,11 @@ export async function handleConfirmLockAction(params: {
       throw new Error('Failed to save like');
     }
 
-    queryClient.setQueryData(['posts'], (oldData: { pages: PostType[][] } | undefined) => {
-      if (!oldData?.pages) return oldData;
-      return {
-        ...oldData,
-        pages: oldData.pages.map((page: PostType[]) =>
-          page.map((p: PostType) => {
-            if (p.txid === post.txid) {
-              return {
-                ...p,
-                likes: [newLikeData, ...(p.likes || [])],
-              };
-            }
-            return p;
-          })
-        ),
-      };
-    });
-
-    queryClient.invalidateQueries({ queryKey: ['posts', post.txid] });
+    syncLikeAcrossPostCaches(
+      queryClient,
+      post.txid,
+      newLikeData as NonNullable<HydratedPost['likes']>[number]
+    );
 
     setProgress(100);
     toast({ title: 'Success!', description: 'Like locked successfully!', duration: 2000 });

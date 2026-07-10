@@ -7,8 +7,9 @@ import {
   type NetworkStats,
 } from '@/app/lib/network-stats-client'
 
-export function useNetworkStats(options?: { enabled?: boolean }) {
+export function useNetworkStats(options?: { enabled?: boolean; refreshOnMount?: boolean }) {
   const enabled = options?.enabled ?? true
+  const refreshOnMount = options?.refreshOnMount ?? false
 
   const [data, setData] = useState<NetworkStats | null>(null)
   const [isLoading, setIsLoading] = useState(() => enabled)
@@ -21,7 +22,7 @@ export function useNetworkStats(options?: { enabled?: boolean }) {
     }
 
     let cancelled = false
-    const cached = getCachedNetworkStats()
+    const cached = refreshOnMount ? null : getCachedNetworkStats()
     if (cached) {
       setData(cached)
       setIsLoading(false)
@@ -29,7 +30,7 @@ export function useNetworkStats(options?: { enabled?: boolean }) {
       setIsLoading(true)
     }
 
-    fetchNetworkStats({ refresh: false })
+    fetchNetworkStats({ refresh: refreshOnMount })
       .then((d) => {
         if (!cancelled) {
           setData(d)
@@ -49,21 +50,46 @@ export function useNetworkStats(options?: { enabled?: boolean }) {
     return () => {
       cancelled = true
     }
-  }, [enabled])
+  }, [enabled, refreshOnMount])
 
-  const refetch = useCallback(async (opts?: { refresh?: boolean }) => {
-    setIsLoading(true)
+  const refetch = useCallback(async (opts?: { refresh?: boolean; silent?: boolean }) => {
+    if (!opts?.silent) {
+      setIsLoading(true)
+    }
     setError(null)
     try {
       const d = await fetchNetworkStats({ refresh: opts?.refresh === true })
       setData(d)
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)))
-      setData(null)
+      if (!opts?.silent) {
+        setData(null)
+      }
     } finally {
-      setIsLoading(false)
+      if (!opts?.silent) {
+        setIsLoading(false)
+      }
     }
   }, [])
 
-  return { data, isLoading, error, refetch }
+  const applyMintedDelta = useCallback((amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) return
+
+    setData((current) => {
+      if (!current) return current
+      const mintedTokens = Math.min(current.totalTokens, current.mintedTokens + amount)
+      const remainingTokens = Math.max(current.totalTokens - mintedTokens, 0)
+      return {
+        ...current,
+        mintedTokens,
+        remainingTokens,
+        mintedPercentage:
+          current.totalTokens > 0
+            ? Number(((mintedTokens / current.totalTokens) * 100).toFixed(4))
+            : 0,
+      }
+    })
+  }, [])
+
+  return { data, isLoading, error, refetch, applyMintedDelta }
 }

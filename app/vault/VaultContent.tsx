@@ -210,15 +210,17 @@ export default function VaultContent({
     [unlockableLikesData?.likes],
   );
 
-  // Calculate totals using unlockable likes directly
-  const totalLockedSats = stillLockedLikes.reduce(
-    (sum, like) => sum + like.sats_amount,
-    0,
-  );
-  const unlockableSats = unlockableLikes.reduce(
-    (sum, like) => sum + like.sats_amount,
-    0,
-  );
+  // Prefer API totals so summary cards remain correct if rows are paginated.
+  const totalLockedCount =
+    activeLikesData?.totalCount ?? stillLockedLikes.length;
+  const totalLockedSats =
+    activeLikesData?.totalSatsLocked ??
+    stillLockedLikes.reduce((sum, like) => sum + like.sats_amount, 0);
+  const unlockableCount =
+    unlockableLikesData?.totalCount ?? unlockableLikes.length;
+  const unlockableSats =
+    unlockableLikesData?.totalSatsLocked ??
+    unlockableLikes.reduce((sum, like) => sum + like.sats_amount, 0);
 
   const getBlocksUntilUnlock = (unlockHeight: number) => {
     return Math.max(0, unlockHeight - (blockHeight || 0));
@@ -821,7 +823,7 @@ export default function VaultContent({
           >
             <div className="flex-1 space-y-0.5 sm:space-y-1">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Currently Locked ({stillLockedLikes.length})
+                Currently Locked ({totalLockedCount})
               </div>
               <div className="text-sm sm:text-2xl font-bold font-mono tabular-nums">
                 {formatSatsAbbreviated(totalLockedSats)} sats
@@ -852,7 +854,7 @@ export default function VaultContent({
           >
             <div className="flex-1 space-y-0.5 sm:space-y-1">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Ready to Unlock ({unlockableLikes.length})
+                Ready to Unlock ({unlockableCount})
               </div>
               <div className={cn(
                 "text-sm sm:text-2xl font-bold font-mono tabular-nums",
