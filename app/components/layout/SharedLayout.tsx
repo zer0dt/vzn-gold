@@ -13,7 +13,7 @@ import FloatingProfileButton from "./FloatingProfileButton";
 import { vznGoldTitleGradientClassName } from "@/app/lib/vznGoldTitleGradient";
 
 // Routes that render edge-to-edge without the app chrome (sidebars / FAB).
-const STANDALONE_ROUTE_PREFIXES = ['/landing'];
+const STANDALONE_ROUTE_PREFIXES = ['/landing', '/tree'];
 
 const SharedLayout = ({ children }: { children: ReactNode }) => {
   const pathname = usePathname();

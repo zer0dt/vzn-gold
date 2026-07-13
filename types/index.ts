@@ -100,5 +100,11 @@ export type LeaderboardProfileWithLikes = LeaderboardProfile & {
 /** Subset of {@link Like} fields delivered on realtime like inserts. */
 export type LikeRealtimeSnapshot = Pick<
   Like,
-  'txid' | 'post_txid' | 'user_id' | 'sats_amount' | 'unlock_height' | 'created_at'
+  | 'txid'
+  | 'contract_id'
+  | 'post_txid'
+  | 'user_id'
+  | 'sats_amount'
+  | 'unlock_height'
+  | 'created_at'
 >

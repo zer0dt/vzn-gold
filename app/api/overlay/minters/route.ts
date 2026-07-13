@@ -219,7 +219,9 @@ async function validateCandidate(
 export async function GET(request: Request) {
   const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
-  const originId = searchParams.get('originId')?.trim()
+  const originId =
+    searchParams.get('originId')?.trim() || process.env.NEXT_PUBLIC_LLM21_ORIGIN_ID?.trim()
+  const returnAll = searchParams.get('all') === 'true'
   const excluded = new Set(
     searchParams
       .getAll('exclude')
@@ -235,6 +237,7 @@ export async function GET(request: Request) {
   try {
     console.log(LOG_PREFIX, 'GET', {
       originId,
+      returnAll,
       excludeCount: excluded.size,
       overlayBase: normalizeOverlayBaseUrl(OVERLAY_URL),
     })
@@ -337,6 +340,66 @@ export async function GET(request: Request) {
 
     const skipped: CandidateSkip[] = []
     const validationStartedAt = Date.now()
+
+    if (returnAll) {
+      const minters: Array<{
+        txid: string
+        outputIndex: number
+        satoshis: number
+        supply: string
+        overlayAmount: string
+      }> = []
+
+      for (
+        let offset = 0;
+        offset < candidates.length;
+        offset += CANDIDATE_VALIDATION_CONCURRENCY
+      ) {
+        const batch = candidates.slice(offset, offset + CANDIDATE_VALIDATION_CONCURRENCY)
+        const results = await Promise.all(
+          batch.map((candidate, batchIndex) => validateCandidate(candidate, offset + batchIndex))
+        )
+
+        for (const result of results) {
+          if (result.ok) {
+            minters.push({
+              txid: result.candidate.txid,
+              outputIndex: result.candidate.outputIndex,
+              satoshis: result.satoshis,
+              supply: result.supply,
+              overlayAmount: result.candidate.amount.toString(),
+            })
+          } else {
+            skipped.push(result.skipped)
+          }
+        }
+      }
+
+      const validationMs = Date.now() - validationStartedAt
+      console.log(LOG_PREFIX, 'validated all minters', {
+        originId,
+        candidateCount: candidates.length,
+        minterCount: minters.length,
+        skippedCount: skipped.length,
+        validationMs,
+        elapsedMs: Date.now() - startedAt,
+      })
+
+      return NextResponse.json({
+        originId,
+        minters,
+        minterCount: minters.length,
+        candidateCount: candidates.length,
+        skipped,
+        timings: {
+          artifactMs,
+          overlayUnspentMs,
+          validationMs,
+          elapsedMs: Date.now() - startedAt,
+          validationConcurrency: CANDIDATE_VALIDATION_CONCURRENCY,
+        },
+      })
+    }
 
     for (let offset = 0; offset < candidates.length; offset += CANDIDATE_VALIDATION_CONCURRENCY) {
       const batch = candidates.slice(offset, offset + CANDIDATE_VALIDATION_CONCURRENCY)

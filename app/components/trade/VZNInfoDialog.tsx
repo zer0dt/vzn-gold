@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Check, Copy, ExternalLink, GitFork, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/app/components/ui/button";
 import {
@@ -292,6 +293,17 @@ export default function VZNInfoDialog({
                       </a>
                     </Button>
                   </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 border-t border-border/60 py-3">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  LockLikeMintBSV21Parallel (LLM21)
+                  </div>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/tree">
+                      <GitFork className="mr-2 h-3.5 w-3.5" />
+                      View tree
+                    </Link>
+                  </Button>
                 </div>
               </div>
             </div>
