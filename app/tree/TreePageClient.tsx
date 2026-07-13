@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useCallback, useState } from 'react'
 
 import { Button } from '@/app/components/ui/button'
+import { ModeToggle } from '@/app/components/ui/mode-toggle'
 import { useRealtimeUpdates } from '@/app/hooks/useRealtimeUpdates'
 import FractalTransactionTree from '@/app/tree/FractalTransactionTree'
 import type { LikeRealtimeSnapshot } from '@/types'
@@ -54,7 +55,7 @@ export default function TreePageClient({ originId }: { originId: string }) {
     <div className="min-h-dvh">
       <header className="border-b border-border/70 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex min-h-14 max-w-[1800px] flex-wrap items-center justify-between gap-y-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0">
-          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <Button
               asChild
               variant="ghost"
@@ -78,26 +79,29 @@ export default function TreePageClient({ originId }: { originId: string }) {
             </div>
           </div>
 
-          {query.data && (
-            <div className="hidden items-center gap-5 text-xs sm:flex">
-              <span>
-                <strong className="font-mono font-semibold text-amber-700 dark:text-amber-400">
-                  {query.data.stats.likedBranchCount}
-                </strong>{' '}
-                <span className="text-muted-foreground">likes</span>
-              </span>
-              <span>
-                <strong className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                  {query.data.stats.liveOutputCount}
-                </strong>{' '}
-                <span className="text-muted-foreground">live minters</span>
-              </span>
-              <span>
-                <strong className="font-mono font-semibold">{query.data.stats.maxDepth}</strong>{' '}
-                <span className="text-muted-foreground">generations</span>
-              </span>
-            </div>
-          )}
+          <div className="flex shrink-0 items-center gap-5">
+            {query.data && (
+              <div className="hidden items-center gap-5 text-xs sm:flex">
+                <span>
+                  <strong className="font-mono font-semibold text-amber-700 dark:text-amber-400">
+                    {query.data.stats.likedBranchCount}
+                  </strong>{' '}
+                  <span className="text-muted-foreground">likes</span>
+                </span>
+                <span>
+                  <strong className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                    {query.data.stats.liveOutputCount}
+                  </strong>{' '}
+                  <span className="text-muted-foreground">live minters</span>
+                </span>
+                <span>
+                  <strong className="font-mono font-semibold">{query.data.stats.maxDepth}</strong>{' '}
+                  <span className="text-muted-foreground">generations</span>
+                </span>
+              </div>
+            )}
+            <ModeToggle className="h-11 w-11 rounded-full sm:h-9 sm:w-9" />
+          </div>
 
           {query.data && (
             <div className="grid w-full grid-cols-3 border-t border-border/60 pt-2 text-center text-[11px] sm:hidden">

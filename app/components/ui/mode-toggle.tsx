@@ -6,7 +6,10 @@ import { useTheme } from "next-themes"
  
 import { Button } from "@/app/components/ui/button"
 
-export const ModeToggle = forwardRef<HTMLButtonElement>((props, ref) => {
+export const ModeToggle = forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Button>
+>((props, ref) => {
   const { theme, setTheme } = useTheme()
  
   return (

@@ -1,6 +1,7 @@
 'use client'
 
 import React from "react"
+import Link from "next/link"
 import { Loader2, RefreshCw } from "lucide-react"
 import { useBlockHeightContext } from "@/app/contexts/BlockHeightContext"
 import { useBSVPrice } from "@/app/hooks/use-bsv-price"
@@ -126,18 +127,28 @@ function NetworkStatsPanelContent() {
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80 shadow-[0_0_8px_rgba(245,158,11,0.55)] animate-pulse" />
                 <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Minted Supply</span>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-full text-muted-foreground hover:bg-amber-400/10 hover:text-amber-600 dark:hover:text-amber-300"
-                onClick={refreshMintedSupply}
-                disabled={isMintedSupplyLoading}
-                title="Refresh minted supply"
-                aria-label="Refresh minted supply"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isMintedSupplyLoading ? 'animate-spin' : ''}`} />
-              </Button>
+              <div className="flex items-center gap-0.5">
+                <Link
+                  href="/tree"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-sm transition-colors hover:bg-amber-400/10"
+                  title="View mint tree"
+                  aria-label="View mint tree"
+                >
+                  🌳
+                </Link>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-muted-foreground hover:bg-amber-400/10 hover:text-amber-600 dark:hover:text-amber-300"
+                  onClick={refreshMintedSupply}
+                  disabled={isMintedSupplyLoading}
+                  title="Refresh minted supply"
+                  aria-label="Refresh minted supply"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isMintedSupplyLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
             </div>
             {isMintedSupplyLoading || data === null ? (
               <div className="flex items-center justify-center h-12">
