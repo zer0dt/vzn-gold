@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import TreePageClient from './TreePageClient'
 
 export const metadata: Metadata = {
-  title: '$VZN Tree | VZN.gold',
+  title: '$VZN LockLikeMintBSV21Parallel (LLM21) Tree | VZN.gold',
   description: 'Explore the $VZN minter output tree.',
 }
 

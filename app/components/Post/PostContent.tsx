@@ -9,7 +9,14 @@ import dynamic from 'next/dynamic';
 import { components as tweetComponents, tweetEmbedClassName } from '../embeds/X/tweet-components'; // Assuming path
 import { SafeTweet } from '../embeds/X/SafeTweet';
 import { LazyYouTubeEmbed, LazyDexScreenerEmbed } from './LazyEmbeds';
-import { TWITTER_PATTERN, YOUTUBE_PATTERN, DEXSCREENER_PATTERN, LINK_PATTERN, extractTweetId } from './postUtils';
+import {
+  TWITTER_PATTERN,
+  YOUTUBE_PATTERN,
+  DEXSCREENER_PATTERN,
+  extractGenericLinkUrls,
+  extractTweetId,
+  stripEmbeddedUrls,
+} from './postUtils';
 import type { PostProps } from './postTypes';
 // NFT listing feature removed
 
@@ -56,35 +63,25 @@ export const PostContent = React.memo(({ post }: PostContentProps) => {
     const twitterMatches = Array.from(cleanContent.matchAll(TWITTER_PATTERN)) as RegExpMatchArray[];
     const youtubeMatches = Array.from(cleanContent.matchAll(YOUTUBE_PATTERN)) as RegExpMatchArray[];
     const dexscreenerMatches = Array.from(cleanContent.matchAll(DEXSCREENER_PATTERN)) as RegExpMatchArray[];
-    const allLinkMatches = Array.from(cleanContent.matchAll(LINK_PATTERN)) as RegExpMatchArray[];
 
     const twitterMatch = twitterMatches[0] || null;
     const youtubeMatch = youtubeMatches[0] || null;
     const dexscreenerMatch = dexscreenerMatches[0] || null;
 
-    const linkMatches = allLinkMatches
-      .filter(match => {
-        // Ensure we capture the URL correctly from markdown or plain links
-        const url = (match?.[3] || match?.[0])?.replace(/\)?$/, '') ?? ''; // Add null checks and default
-        // Exclude DexScreener links from the generic link list
-        return !!url && !url.match(/dexscreener\.com/i);
-      });
-
     return {
       twitterUrl: twitterMatch?.[0]?.split('?')[0] ?? null, // Add null checks
       youtubeUrl: youtubeMatch?.[0]?.split('&')[0] ?? null, // Add null checks
       dexscreenerUrl: dexscreenerMatch?.[0]?.split('?')[0] ?? null, // Add null checks
-       // Extract the URL, handling both markdown [text](url) and plain url cases
-      linkUrls: linkMatches.map(match => (match?.[3] || match?.[0])?.replace(/\)?$/, '').trim() ?? '') // Add null checks
-                      .filter(url => !!url) // Filter out any empty strings resulting from null checks
+      linkUrls: extractGenericLinkUrls(cleanContent),
     };
   }, [cleanContent]);
 
   const tweetId = useMemo(() => extractTweetId(twitterUrl), [twitterUrl]);
 
-  // Keep the original content with links visible (no URL removal)
+  const textContent = useMemo(() => stripEmbeddedUrls(cleanContent), [cleanContent]);
+
   const displayContent = useMemo(() => {
-    const trimmedContent = cleanContent.trim();
+    const trimmedContent = textContent.trim();
     const shouldTruncate = trimmedContent.length > CHARACTER_LIMIT && !isExpanded;
     
     if (shouldTruncate) {
@@ -102,9 +99,9 @@ export const PostContent = React.memo(({ post }: PostContentProps) => {
     }
     
     return trimmedContent;
-  }, [cleanContent, isExpanded]);
+  }, [isExpanded, textContent]);
 
-  const shouldShowToggle = cleanContent.trim().length > CHARACTER_LIMIT;
+  const shouldShowToggle = textContent.trim().length > CHARACTER_LIMIT;
 
   const handleContentClick = () => {
     router.push(`/tx/${post.txid}`);
@@ -180,14 +177,11 @@ export const PostContent = React.memo(({ post }: PostContentProps) => {
       {/* Link Cards */}
       {linkUrls.length > 0 && (
         <div className="mt-2 space-y-2" onClick={stopPropagation}>
-          {linkUrls.map((url, index) => (
+          {linkUrls.map((url) => (
              <DynamicLinkCard
-                key={`link-${index}-${post.txid}`} // More specific key
+                key={`link-${url}-${post.txid}`}
                 href={url}
-                // className is handled internally by DynamicLinkCard or pass if needed
               >
-                {/* LinkCard might handle displaying the URL, or pass it as child */}
-                {/* {url} */}
                 {url}
              </DynamicLinkCard>
           ))}

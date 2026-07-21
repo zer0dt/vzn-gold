@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import Image from 'next/image';
 import {
   Sheet,
@@ -37,9 +37,11 @@ import {
   preparePostImage,
   type PreparedPostImage,
 } from '@/app/lib/post-image-utils';
+import {
+  extractGenericLinkUrls,
+  stripEmbeddedUrls,
+} from './Post/postUtils';
 
-// URL regex pattern
-const URL_PATTERN = /https?:\/\/[^\s<]+[^<.,:;"')\]\s]/g;
 const TWITTER_PATTERN =
   /https?:\/\/((?:x|twitter)\.com\/\w+\/status\/\d+)[^\s]*/gi;
 const TWITTER_STATUS_URL_PATTERN =
@@ -154,6 +156,11 @@ export default function PostSheet({
   const supabase = createClient();
   
   const { ownerAddress, calculateUSDValue, isWalletReady } = useWallet();
+  const previewContent = useMemo(() => stripEmbeddedUrls(content), [content]);
+  const previewLinkUrls = useMemo(
+    () => extractGenericLinkUrls(content),
+    [content]
+  );
 
   // Add ref for the textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -573,26 +580,7 @@ export default function PostSheet({
                   },
                 }}
               >
-                {content
-                  .replace(
-                    /\[([^\]]*)\]\(https?:\/\/(x|twitter)\.com[^)]*\)/gi,
-                    "$1"
-                  )
-                  .replace(TWITTER_PATTERN, "")
-
-                  .replace(
-                    /\[([^\]]*)\]\(https?:\/\/(www\.)?(youtube\.com|youtu\.be)[^)]*\)/gi,
-                    "$1"
-                  )
-                  .replace(YOUTUBE_PATTERN, "")
-
-                  .replace(
-                    /\[([^\]]*)\]\(https?:\/\/(www\.)?dexscreener\.com[^)]*\)/gi,
-                    "$1"
-                  )
-                  .replace(DEXSCREENER_PATTERN, "")
-
-                  .trim()}
+                {previewContent}
               </ReactMarkdown>
 
               {/* Twitter embed handling - Extract from both formats */}
@@ -629,6 +617,17 @@ export default function PostSheet({
                 <DexScreenerEmbed
                   url={Array.from(content.matchAll(DEXSCREENER_PATTERN))[0][0]}
                 />
+              )}
+
+              {/* Generic link embeds */}
+              {previewLinkUrls.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {previewLinkUrls.map((url) => (
+                    <LinkCard key={url} href={url}>
+                      {url}
+                    </LinkCard>
+                  ))}
+                </div>
               )}
             </div>
           ) : (

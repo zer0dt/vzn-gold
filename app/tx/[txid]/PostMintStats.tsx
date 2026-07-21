@@ -15,7 +15,6 @@ import type { HydratedPost } from '@/app/lib/supabase/posts'
 import { useNetworkStats } from '@/app/hooks/use-network-stats'
 import { formatCompactSupply } from '@/app/lib/formatCompactSupply'
 import { formatTokenTicker } from '@/app/lib/formatTokenTicker'
-import { vznGoldTitleGradientClassName } from '@/app/lib/vznGoldTitleGradient'
 import { formatSatsAbbreviated } from '@/app/lib/utils'
 
 type HydratedLike = NonNullable<HydratedPost['likes']>[number]
@@ -108,11 +107,11 @@ export default function PostMintStats({
   const isReady = !isLoading && stats !== null
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-background/60 backdrop-blur overflow-hidden shadow-[0_0_0_1px_rgba(245,158,11,0.06)] hover:shadow-[0_0_0_1px_rgba(245,158,11,0.12),0_18px_40px_-24px_rgba(245,158,11,0.2)] transition-all duration-300">
+    <div className="rounded-2xl border border-border/50 bg-muted/20 overflow-hidden">
       <div className="flex flex-col px-4 py-3">
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <div className="flex items-center gap-2">
-            <Coins className="h-3.5 w-3.5 text-amber-500/90" />
+            <Coins className="h-3.5 w-3.5 text-muted-foreground/70" />
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Minted from this post
             </span>
@@ -129,14 +128,12 @@ export default function PostMintStats({
 
         {!isReady ? (
           <div className="flex items-center justify-center h-10">
-            <Loader2 className="h-4 w-4 animate-spin text-amber-500/80" />
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
           </div>
         ) : (
           <>
             <div className="flex items-baseline justify-between gap-3">
-              <span
-                className={`text-sm font-semibold font-mono tabular-nums ${vznGoldTitleGradientClassName}`}
-              >
+              <span className="text-sm font-medium font-mono tabular-nums text-foreground/80">
                 {formatCompactSupply(postMinted)}
                 {symbolLabel ? ` ${symbolLabel}` : ''}
               </span>
@@ -146,9 +143,9 @@ export default function PostMintStats({
               </span>
             </div>
 
-            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full border border-border/60 bg-background/60 backdrop-blur">
+            <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted/50">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 shadow-[0_0_12px_-2px_rgba(245,158,11,0.7)] transition-[width] duration-500"
+                className="h-full rounded-full bg-amber-500/45 transition-[width] duration-500"
                 style={{ width: `${Math.min(Math.max(percentOfMinted, 0), 100)}%` }}
               />
             </div>
@@ -156,9 +153,9 @@ export default function PostMintStats({
         )}
       </div>
 
-      <div className="border-t border-border/60 bg-gradient-to-r from-amber-500/[0.03] via-transparent to-transparent px-4 py-3">
+      <div className="border-t border-border/40 px-4 py-3">
         <div className="flex items-center gap-2 mb-2">
-          <Users className="h-3.5 w-3.5 text-amber-500/90" />
+          <Users className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             Holders
           </span>
@@ -194,7 +191,7 @@ export default function PostMintStats({
                     <Link
                       href={profileHref}
                       title={`View profile: ${displayName}`}
-                      className="flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
+                      className="flex-shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
                       <Avatar className="h-8 w-8 flex-shrink-0 ring-1 ring-border/60 bg-muted transition-opacity hover:opacity-80">
                         {profile?.avatar_url ? (
@@ -224,12 +221,12 @@ export default function PostMintStats({
                       {profileHref ? (
                         <Link
                           href={profileHref}
-                          className="flex min-w-0 items-center gap-1 truncate text-[13px] font-post-sans text-foreground transition-colors hover:text-primary hover:underline underline-offset-2 decoration-amber-400/60 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60"
+                          className="flex min-w-0 items-center gap-1 truncate text-[13px] font-post-sans text-foreground transition-colors hover:text-foreground/80 hover:underline underline-offset-2 decoration-border rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                           title={profileTarget}
                         >
                           <span className="truncate">{displayName}</span>
                           {isOp && (
-                            <span className="inline-flex flex-shrink-0 items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-1 py-0 font-mono text-[8px] uppercase tracking-[0.12em] text-amber-600 dark:text-amber-300">
+                            <span className="inline-flex flex-shrink-0 items-center rounded-full border border-border/60 bg-muted/50 px-1 py-0 font-mono text-[8px] uppercase tracking-[0.12em] text-muted-foreground">
                               OP
                             </span>
                           )}
@@ -239,17 +236,15 @@ export default function PostMintStats({
                           <span className="truncate">{displayName}</span>
                         </span>
                       )}
-                      <span
-                        className={`flex-shrink-0 font-post-mono text-[12px] font-medium tabular-nums ${vznGoldTitleGradientClassName}`}
-                      >
+                      <span className="flex-shrink-0 font-post-mono text-[12px] tabular-nums text-muted-foreground">
                         {formatCompactSupply(entry.minted)}
                         {symbolLabel ? ` ${symbolLabel}` : ''}
                       </span>
                     </div>
 
-                    <div className="relative mt-1 h-1 overflow-hidden rounded-full bg-muted/40">
+                    <div className="relative mt-1 h-0.5 overflow-hidden rounded-full bg-muted/40">
                       <div
-                        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-amber-500 to-amber-300"
+                        className="absolute inset-y-0 left-0 rounded-full bg-amber-500/35"
                         style={{ width: `${Math.min(Math.max(entry.share, 0), 100)}%` }}
                       />
                     </div>
