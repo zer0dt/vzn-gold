@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, memo, useMemo, useCallback } from 'react'
+import { useState, useEffect, memo, useMemo, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { useQueryClient } from '@tanstack/react-query'
@@ -50,8 +50,10 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
   // State for Sheets/Dialogs visibility
   const [showCommentSheet, setShowCommentSheet] = useState(false)
   const [isLockSheetOpen, setIsLockSheetOpen] = useState(false)
+  const [isLockSheetMounted, setIsLockSheetMounted] = useState(false)
   const [isImageFullscreen, setIsImageFullscreen] = useState(false)
   const [showAuthModal, setShowAuthModal] = useState(false)
+  const lockSheetUnmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // State for Async Operations (Locking)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -99,9 +101,36 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
 
   // --- Event Handlers ---
 
+  const handleLockSheetOpenChange = useCallback((open: boolean) => {
+    if (lockSheetUnmountTimerRef.current) {
+      clearTimeout(lockSheetUnmountTimerRef.current)
+      lockSheetUnmountTimerRef.current = null
+    }
+
+    if (open) {
+      setIsLockSheetMounted(true)
+      setIsLockSheetOpen(true)
+      return
+    }
+
+    setIsLockSheetOpen(false)
+    lockSheetUnmountTimerRef.current = setTimeout(() => {
+      setIsLockSheetMounted(false)
+      lockSheetUnmountTimerRef.current = null
+    }, 320)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (lockSheetUnmountTimerRef.current) {
+        clearTimeout(lockSheetUnmountTimerRef.current)
+      }
+    }
+  }, [])
+
   const handleConfirmLock = useCallback(
     async (satsToLock: number, blocksToLock: number) => {
-      await handleConfirmLockAction({
+      return handleConfirmLockAction({
         satsToLock,
         blocksToLock,
         post,
@@ -113,7 +142,6 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
         user,
         setIsProcessing,
         setProgress,
-        setIsLockSheetOpen,
       });
     },
     [post, blockHeight, supabase, queryClient, toast, walletContext, user]
@@ -179,7 +207,7 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
             blockHeight={blockHeight || 0}
             isAmountAnimating={isAmountAnimating}
             onShowComments={() => setShowCommentSheet(true)}
-            onShowLock={() => setIsLockSheetOpen(true)}
+            onShowLock={() => handleLockSheetOpenChange(true)}
           />
         </div>
       </div>
@@ -205,10 +233,10 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
       )}
 
       {/* Lock Sheet */}
-      {isLockSheetOpen && (
+      {isLockSheetMounted && (
         <LockSheet
           isOpen={isLockSheetOpen}
-          onOpenChange={setIsLockSheetOpen}
+          onOpenChange={handleLockSheetOpenChange}
           bsvPrice={bsvPrice}
           isPriceError={isPriceError}
           isLocking={isProcessing}

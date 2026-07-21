@@ -254,8 +254,7 @@ export async function handleConfirmLockAction(params: {
   user: { id: string } | null | undefined;
   setIsProcessing: (v: boolean) => void;
   setProgress: (v: number) => void;
-  setIsLockSheetOpen: (v: boolean) => void;
-}) {
+}): Promise<string | null> {
   const {
     satsToLock,
     blocksToLock,
@@ -268,7 +267,6 @@ export async function handleConfirmLockAction(params: {
     user,
     setIsProcessing,
     setProgress,
-    setIsLockSheetOpen,
   } = params;
 
 
@@ -283,7 +281,7 @@ export async function handleConfirmLockAction(params: {
       description: 'Please log in to lock satoshis on this post.',
       duration: 3000,
     });
-    return;
+    return null;
   }
 
   if (!ownerKey || !senderWalletAddress) {
@@ -293,7 +291,7 @@ export async function handleConfirmLockAction(params: {
       description: 'Wallet setup is incomplete. Please set up your wallet first.',
       duration: 3000,
     });
-    return;
+    return null;
   }
 
   if (!isWalletReady) {
@@ -303,7 +301,7 @@ export async function handleConfirmLockAction(params: {
       description: 'Posting is free, but connect a wallet to sign your posts',
       duration: 2000,
     });
-    return;
+    return null;
   }
 
   setIsProcessing(true);
@@ -665,7 +663,7 @@ export async function handleConfirmLockAction(params: {
           description: 'No fresh funding UTXOs were found for your wallet. Please wait for confirmation or fund it and try again.',
           duration: 4000,
         });
-        return;
+        return null;
       }
 
       const fundingParentTxids = Array.from(new Set(fundingUtxos.map((utxo) => utxo.txId).filter(Boolean)));
@@ -737,7 +735,7 @@ export async function handleConfirmLockAction(params: {
         description: 'Could not add the funding input. The mint BEEF must include it. Please try again.',
         duration: 4000,
       });
-      return;
+      return null;
     }
 
     const tUnlock0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -809,6 +807,7 @@ export async function handleConfirmLockAction(params: {
         overlayMinterBeefBase64Chars: overlayMinterBeefPrefetch.beefBase64Chars ?? 0,
         timing: mintTiming(undefined, { mark: false }),
       });
+      setProgress(80);
       const res = await fetch('/api/beef-cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -933,7 +932,7 @@ export async function handleConfirmLockAction(params: {
         throw new Error('No persisted like returned from overlay submit');
       }
 
-      setProgress(80);
+      setProgress(95);
       keepFundingReservations = true;
       keepContractReservation = true;
       const balanceRefresh = walletContext.fetchDetailedBalance?.();
@@ -971,10 +970,7 @@ export async function handleConfirmLockAction(params: {
       timing: mintTiming(),
     });
 
-    setTimeout(() => {
-      setIsLockSheetOpen(false);
-      setProgress(0);
-    }, 500);
+    return txid;
   } catch (error: any) {
     console.error('Error locking like:', error);
     setProgress(0);
@@ -984,6 +980,7 @@ export async function handleConfirmLockAction(params: {
       description: error?.message || error?.toString() || 'Failed to lock like. Please try again.',
       duration: 5000,
     });
+    return null;
   } finally {
     if (!keepFundingReservations && reservedFundingOutpointKeys.length > 0) {
       releasePendingMintFundingOutpointKeys(reservedFundingOutpointKeys);

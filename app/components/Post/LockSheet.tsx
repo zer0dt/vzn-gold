@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Lock, Loader2, LogIn } from 'lucide-react';
+import { Check, Lock, Loader2, LogIn } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/app/components/ui/sheet";
+import { ThinkingOrb } from "thinking-orbs";
 import { useToast } from "@/app/hooks/use-toast";
 import { useAuth } from "@/app/contexts/AuthContext";
 import { formatUSD, formatBlocksToTime } from '@/app/lib/utils';
@@ -17,9 +19,11 @@ type LockSheetProps = {
   isPriceError: boolean;
   isLocking: boolean;
   progress: number;
-  onConfirmLock: (sats: number, blocks: number) => Promise<void>;
+  onConfirmLock: (sats: number, blocks: number) => Promise<string | null>;
   onRequestLogin?: () => void;
 };
+
+type LockView = 'form' | 'processing' | 'success';
 
 const GOLD_TEXT =
   'text-transparent bg-clip-text bg-gradient-to-r from-[#FBBF24] via-[#F59E0B] to-[#FBBF24]';
@@ -65,14 +69,13 @@ export const LockSheet = ({
   const mintTokenAmount = networkStats?.mintLimit ?? 1000;
   const [isConfirming, setIsConfirming] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [view, setView] = useState<LockView>('form');
+  const [successTxid, setSuccessTxid] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const { isWalletReady } = useWallet();
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) {
-      setIsConfirming(false);
-    }
     onOpenChange(open);
   };
 
@@ -106,8 +109,16 @@ export const LockSheet = ({
         setIsConfirming(true);
       }
     } else {
-      await onConfirmLock(contractSats as number, contractBlocks as number);
+      setElapsedSeconds(0);
+      setView('processing');
+      const txid = await onConfirmLock(contractSats as number, contractBlocks as number);
       setIsConfirming(false);
+      if (txid) {
+        setSuccessTxid(txid);
+        setView('success');
+      } else {
+        setView('form');
+      }
     }
   };
 
@@ -236,52 +247,120 @@ export const LockSheet = ({
                 : 'Loading the live contract lock amount and duration. Miner and dev fee apply.'}
             </p>
 
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={handleCancel}
-                disabled={isLocking}
-                className={GHOST_PILL}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmClick}
-                disabled={confirmDisabled}
-                className={`${PRIMARY_CTA} min-w-[180px]`}
-              >
-                <span className={PRIMARY_CTA_HOVER_OVERLAY} />
-                <span className="relative flex items-center justify-center gap-2">
-                  {isLocking ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm">
-                        {getTransactionProgressLabel(progress)}… {formatProgressElapsedTime(elapsedSeconds)}
-                      </span>
-                    </>
-                  ) : isConfirming ? (
-                    <span>Confirm</span>
-                  ) : isNetworkStatsLoading ? (
-                    <>
-                      <span>{`Mint ${mintTokenAmount.toLocaleString()}`}</span>
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                    </>
-                  ) : (
-                    <span>{`Mint ${mintTokenAmount.toLocaleString()} ${formatTokenTicker(networkStats?.symbol ?? '')}`}</span>
-                  )}
-                </span>
-              </button>
-            </div>
-
-            {isLocking && (
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-                <div
-                  className="h-full bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 transition-[width] duration-150"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+              {view === 'processing' ? (
+                <motion.div
+                  key="processing"
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex flex-col items-center gap-4 py-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <ThinkingOrb state="composing" size={64} />
+                  <div className="text-center">
+                    <div className="text-sm font-medium text-foreground">
+                      {getTransactionProgressLabel(progress)}…
+                    </div>
+                    <div className="mt-1 font-post-mono text-[11px] tabular-nums text-muted-foreground">
+                      {formatProgressElapsedTime(elapsedSeconds)}
+                    </div>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/60">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 transition-[width] duration-150"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </motion.div>
+              ) : view === 'success' ? (
+                <motion.div
+                  key="success"
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex flex-col items-center gap-4 py-3 text-center"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex h-16 w-16 items-center justify-center rounded-full border border-amber-400/50 bg-amber-400/10 text-amber-600 dark:text-amber-300"
+                  >
+                    <Check className="h-8 w-8 stroke-[2]" aria-hidden />
+                  </motion.div>
+                  <div>
+                    <h3 className="font-vzn-headings text-xl font-normal tracking-tight">
+                      Mint successful
+                    </h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Your VZN was minted and the lock was broadcast.
+                    </p>
+                    {successTxid && (
+                      <a
+                        href={`https://bananablocks.com/tx/${successTxid}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mx-auto mt-2 block max-w-[18rem] truncate rounded-sm font-post-mono text-[10px] text-amber-600 underline decoration-amber-400/50 underline-offset-2 transition-colors hover:text-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 dark:text-amber-300"
+                        title={`View ${successTxid} on BananaBlocks`}
+                      >
+                        {successTxid}
+                      </a>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className={`${PRIMARY_CTA} min-w-[180px]`}
+                  >
+                    <span className={PRIMARY_CTA_HOVER_OVERLAY} />
+                    <span className="relative">Done</span>
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="form-actions"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex justify-end gap-2 pt-1"
+                >
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className={GHOST_PILL}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmClick}
+                    disabled={confirmDisabled}
+                    className={`${PRIMARY_CTA} min-w-[180px]`}
+                  >
+                    <span className={PRIMARY_CTA_HOVER_OVERLAY} />
+                    <span className="relative flex items-center justify-center gap-2">
+                      {isConfirming ? (
+                        <span>Confirm</span>
+                      ) : isNetworkStatsLoading ? (
+                        <>
+                          <span>{`Mint ${mintTokenAmount.toLocaleString()}`}</span>
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                        </>
+                      ) : (
+                        <span>{`Mint ${mintTokenAmount.toLocaleString()} ${formatTokenTicker(networkStats?.symbol ?? '')}`}</span>
+                      )}
+                    </span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </SheetContent>

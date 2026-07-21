@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Link2, MessageSquare, ThumbsUp } from "lucide-react";
+import { Link2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import React, { useMemo } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   AvatarImage,
 } from "@/app/components/ui/avatar";
 import { Button } from "@/app/components/ui/button";
+import { ThinkingOrb } from "thinking-orbs";
 import {
   Popover,
   PopoverContent,
@@ -212,14 +213,7 @@ export const PostActions = React.memo(
                     : "Like with locked sats"
               }
             >
-              <ThumbsUp
-                className={cn(
-                  "h-4 w-4 fill-none transition-colors",
-                  hasResolvedBlockHeight && activeLikes.length > 0
-                    ? "text-amber-500 dark:text-amber-400 stroke-[2px]"
-                    : "text-muted-foreground stroke-[1.5px] group-hover:text-amber-500 dark:group-hover:text-amber-300",
-                )}
-              />
+              <ThinkingOrb state="listening" size={20} speed={0.33} />
             </Button>
             <Popover>
               <PopoverTrigger asChild>
