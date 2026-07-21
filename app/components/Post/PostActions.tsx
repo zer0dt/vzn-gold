@@ -133,7 +133,7 @@ export const PostActions = React.memo(
     };
 
     return (
-      <div className="mt-1 flex items-center justify-between pr-6 font-post-sans">
+      <div className="relative mt-1 flex min-h-6 items-center justify-between pr-6 font-post-sans">
         {/* Left - Comments (match like: icon size + text-xs mono/sans count row) */}
         <div className="flex items-center min-w-[48px]">
           <div className="flex items-center gap-1">
@@ -193,7 +193,7 @@ export const PostActions = React.memo(
         </div>
 
         {/* Middle - Like (locked sats, centered) */}
-        <div className="flex-1 flex items-center justify-center">
+        <div className="absolute left-1/2 top-0 -translate-x-1/2">
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -213,13 +213,30 @@ export const PostActions = React.memo(
                     : "Like with locked sats"
               }
             >
-              <ThinkingOrb state="listening" size={20} speed={0.33} />
+              <ThinkingOrb
+                state="listening"
+                size={20}
+                speed={0.7}
+                theme={
+                  hasResolvedBlockHeight && totalLockedSats > 0
+                    ? "dark"
+                    : "auto"
+                }
+                style={{
+                  width: 24,
+                  height: 24,
+                  filter:
+                    hasResolvedBlockHeight && totalLockedSats > 0
+                      ? "brightness(0) saturate(100%) invert(72%) sepia(86%) saturate(1000%) hue-rotate(350deg) brightness(103%) contrast(95%)"
+                      : undefined,
+                }}
+              />
             </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <button
                   className={cn(
-                    "flex items-baseline gap-1 text-xs transition-colors",
+                    "flex w-[4.75rem] items-baseline justify-start gap-1 whitespace-nowrap text-xs transition-colors",
                     hasResolvedBlockHeight && totalLockedSats > 0
                       ? "text-muted-foreground hover:text-foreground"
                       : "text-muted-foreground/70 hover:text-muted-foreground",

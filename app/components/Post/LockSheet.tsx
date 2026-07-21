@@ -215,7 +215,14 @@ export const LockSheet = ({
                     Amount
                   </div>
                   <div className="text-right font-post-mono text-xl font-semibold tabular-nums">
-                    {contractSats !== null ? `${contractSats.toLocaleString()} sats` : <ContractValueSpinner label="Loading" />}
+                    {contractSats !== null ? (
+                      <>
+                        {contractSats.toLocaleString()}
+                        <span className="md:block"> sats</span>
+                      </>
+                    ) : (
+                      <ContractValueSpinner label="Loading" />
+                    )}
                   </div>
                   {!isPriceError && bsvPrice && contractSats !== null && (
                     <div className="h-4 text-right text-xs text-muted-foreground">
@@ -230,7 +237,14 @@ export const LockSheet = ({
                     Duration
                   </div>
                   <div className="text-right font-post-mono text-xl font-semibold tabular-nums">
-                    {contractBlocks !== null ? `${contractBlocks.toLocaleString()} blocks` : <ContractValueSpinner label="Loading" />}
+                    {contractBlocks !== null ? (
+                      <>
+                        {contractBlocks.toLocaleString()}
+                        <span className="md:block"> blocks</span>
+                      </>
+                    ) : (
+                      <ContractValueSpinner label="Loading" />
+                    )}
                   </div>
                   <div className="h-4 text-right text-xs text-muted-foreground">
                     {contractBlocks !== null
