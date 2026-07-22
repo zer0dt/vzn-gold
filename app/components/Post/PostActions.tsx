@@ -199,10 +199,10 @@ export const PostActions = React.memo(
               variant="ghost"
               size="icon"
               className={cn(
-                "h-6 w-6 rounded-full hover:bg-blue-500/10 transition-colors group",
+                "h-6 w-6 rounded-full hover:bg-foreground/10 transition-colors group",
                 hasResolvedBlockHeight && activeLikes.length > 0
-                  ? "text-blue-600 dark:text-blue-300"
-                  : "text-muted-foreground hover:text-blue-600 dark:hover:text-blue-300",
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
               onClick={handleShowLockClick}
               title={
@@ -218,15 +218,11 @@ export const PostActions = React.memo(
                 size={20}
                 speed={0.7}
                 theme="auto"
-                className={cn(
-                  hasResolvedBlockHeight &&
-                    totalLockedSats > 0 &&
-                    "[filter:brightness(0)_saturate(100%)_invert(34%)_sepia(99%)_saturate(3180%)_hue-rotate(216deg)_brightness(96%)_contrast(91%)] dark:[filter:brightness(0)_saturate(100%)_invert(81%)_sepia(16%)_saturate(1153%)_hue-rotate(182deg)_brightness(102%)_contrast(98%)]",
-                )}
-                style={{
-                  width: 24,
-                  height: 24,
-                }}
+                aria-label={
+                  hasResolvedBlockHeight && totalLockedSats > 0
+                    ? `${totalLockedSats.toLocaleString()} sats locked`
+                    : "Like with locked sats"
+                }
               />
             </Button>
             <Popover>
@@ -252,7 +248,7 @@ export const PostActions = React.memo(
                     className={cn(
                       "transition-transform font-medium font-post-mono tabular-nums",
                       hasResolvedBlockHeight && totalLockedSats > 0
-                        ? "text-blue-600 dark:text-blue-300"
+                        ? "text-foreground"
                         : "",
                       isAmountAnimating && "animate-scale-bounce",
                     )}

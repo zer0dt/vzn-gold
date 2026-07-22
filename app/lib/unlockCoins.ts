@@ -156,6 +156,27 @@ export type BatchUnlockBuildResult = {
     details: BatchUnlockBuildDetails;
 };
 
+export type BatchUnlockCandidate = {
+    txid: string;
+};
+
+export function normalizeUnlockCandidates(
+    candidates: Array<string | BatchUnlockCandidate>
+): Array<{ txid: string; vout: number }> {
+    return candidates
+        .map((candidate): BatchUnlockCandidate => {
+            if (typeof candidate === 'string') {
+                return { txid: candidate };
+            }
+            return { txid: candidate.txid };
+        })
+        .map((candidate) => ({
+            txid: normalizeTxid(candidate.txid),
+            vout: LOCK_LIKE_MINT_LOCK_VOUT,
+        }))
+        .filter((candidate) => /^[0-9a-f]{64}$/.test(candidate.txid));
+}
+
 export type BatchUnlockProgressEvent =
     | {
           phase: 'fetch_complete';
@@ -170,6 +191,7 @@ export type BatchUnlockProgressEvent =
           chunkCount: number;
           checkedOutpoints: number;
           totalOutpoints: number;
+          vout?: number;
       }
     | {
           phase: 'inputs_ready';
@@ -222,6 +244,11 @@ type SpentLookupResult = {
     unknownOutpointTxids: Set<string>;
 };
 
+export type OutpointSpentState =
+    | { status: 'spent'; spendingTxid: string }
+    | { status: 'unspent' }
+    | { status: 'unknown' };
+
 /** Spending tx from bulk row `spentIn` (WOC shape). */
 function extractBulkSpendingTxid(row: unknown): string | null {
     if (!row || typeof row !== 'object') return null
@@ -232,21 +259,47 @@ function extractBulkSpendingTxid(row: unknown): string | null {
     return normalizeTxid(raw)
 }
 
+export function classifyBulkSpentRow(sourceTxid: string, row: unknown): OutpointSpentState {
+    if (!row || typeof row !== 'object') return { status: 'unknown' }
+
+    const candidate = row as {
+        error?: unknown;
+        spentIn?: unknown;
+    };
+    if (candidate.error !== '') return { status: 'unknown' }
+
+    const spendingTxid = extractBulkSpendingTxid(row)
+    if (spendingTxid && spendingTxid !== normalizeTxid(sourceTxid)) {
+        return { status: 'spent', spendingTxid }
+    }
+
+    // WOC's bulk endpoint reports a confirmed unspent output as
+    // { utxo: {...}, error: "" } with no spentIn field.
+    if (candidate.spentIn === undefined || candidate.spentIn === null) {
+        return { status: 'unspent' }
+    }
+
+    // A spentIn object without a usable txid is ambiguous and needs fallback.
+    return { status: 'unknown' }
+}
+
 /**
- * True spending txid for (sourceTxid, vout): bulk first, then WOC GET …/confirmed/spent
- * so we never store spent_txid === like txid when bulk is wrong.
+ * Resolve ambiguous bulk rows through WOC GET …/confirmed/spent. Clear bulk
+ * spent/unspent results return immediately and avoid an individual request.
  */
-async function resolveSpendingTxid(
+async function resolveOutpointSpentState(
     sourceTxid: string,
     vout: number,
     bulkRow: unknown
-): Promise<string | null> {
+): Promise<{ state: OutpointSpentState; usedFallback: boolean }> {
     const src = normalizeTxid(sourceTxid)
-    if (!/^[0-9a-f]{64}$/.test(src)) return null
+    if (!/^[0-9a-f]{64}$/.test(src)) {
+        return { state: { status: 'unknown' }, usedFallback: false }
+    }
 
-    const fromBulk = extractBulkSpendingTxid(bulkRow)
-    if (fromBulk && fromBulk !== src) {
-        return fromBulk
+    const bulkState = classifyBulkSpentRow(src, bulkRow)
+    if (bulkState.status !== 'unknown') {
+        return { state: bulkState, usedFallback: false }
     }
 
     try {
@@ -254,17 +307,29 @@ async function resolveSpendingTxid(
             `/api/woc/tx-confirmed-spent?txid=${encodeURIComponent(src)}&vout=${vout}`,
             { cache: 'no-store' }
         )
-        if (!r.ok) return null
+        if (!r.ok) {
+            return { state: { status: 'unknown' }, usedFallback: true }
+        }
         const j = (await r.json()) as {
             spendingTxid?: string | null
             unspent?: boolean
         }
-        if (j.unspent || !j.spendingTxid) return null
+        if (j.unspent) {
+            return { state: { status: 'unspent' }, usedFallback: true }
+        }
+        if (!j.spendingTxid) {
+            return { state: { status: 'unknown' }, usedFallback: true }
+        }
         const v = normalizeTxid(j.spendingTxid)
-        if (!/^[0-9a-f]{64}$/.test(v) || v === src) return null
-        return v
+        if (!/^[0-9a-f]{64}$/.test(v) || v === src) {
+            return { state: { status: 'unknown' }, usedFallback: true }
+        }
+        return {
+            state: { status: 'spent', spendingTxid: v },
+            usedFallback: true,
+        }
     } catch {
-        return null
+        return { state: { status: 'unknown' }, usedFallback: true }
     }
 }
 
@@ -308,7 +373,13 @@ const getTxsDetailsBulk = async (
 const getSpentOutpointsBulk = async (
     txids: string[],
     vout: number,
-    onProgress?: (event: BatchUnlockProgressEvent) => void
+    onProgress?: (event: BatchUnlockProgressEvent) => void,
+    progress?: {
+        chunkOffset: number;
+        chunkCount: number;
+        checkedOffset: number;
+        totalOutpoints: number;
+    }
 ): Promise<SpentLookupResult> => {
     const chunks: string[][] = [];
     for (let i = 0; i < txids.length; i += 20) {
@@ -318,6 +389,7 @@ const getSpentOutpointsBulk = async (
     const spentTxids = new Set<string>();
     const spentRows: Array<{ txid: string; spentTxid: string }> = [];
     const unknownOutpointTxids = new Set<string>();
+    let individualFallbackCount = 0;
 
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -344,7 +416,7 @@ const getSpentOutpointsBulk = async (
             }
         }
 
-        for (const requestedTxid of chunk) {
+        const resolved = await Promise.all(chunk.map(async (requestedTxid) => {
             const normRequested = normalizeTxid(requestedTxid);
             const row = rowByOutpoint.get(normRequested);
 
@@ -355,34 +427,49 @@ const getSpentOutpointsBulk = async (
                     ? (row as { utxo: { txid: string } }).utxo.txid
                     : requestedTxid;
 
-            if (
-                row &&
-                typeof row === 'object' &&
-                typeof (row as { error?: string }).error === 'string' &&
-                (row as { error: string }).error.trim().length > 0
-            ) {
-                unknownOutpointTxids.add(normRequested);
+            const result = await resolveOutpointSpentState(sourceTxid, vout, row ?? null);
+            return {
+                normRequested,
+                sourceTxid,
+                ...result,
+            };
+        }));
+
+        for (const result of resolved) {
+            if (result.usedFallback) individualFallbackCount += 1;
+            if (result.state.status === 'unknown') {
+                unknownOutpointTxids.add(result.normRequested);
                 continue;
             }
-
-            const spendingTxid = await resolveSpendingTxid(sourceTxid, vout, row ?? null);
-            if (spendingTxid) {
-                spentTxids.add(normRequested);
-                spentRows.push({
-                    txid: sourceTxid,
-                    spentTxid: spendingTxid,
-                });
+            if (result.state.status === 'unspent') {
+                continue;
             }
+            const spendingTxid = result.state.spendingTxid;
+            spentTxids.add(result.normRequested);
+            spentRows.push({
+                txid: result.sourceTxid,
+                spentTxid: spendingTxid,
+            });
         }
 
         onProgress?.({
             phase: 'spent_check_complete',
-            chunkIndex: i + 1,
-            chunkCount: chunks.length,
-            checkedOutpoints: Math.min(txids.length, (i + 1) * 20),
-            totalOutpoints: txids.length,
+            chunkIndex: (progress?.chunkOffset ?? 0) + i + 1,
+            chunkCount: progress?.chunkCount ?? chunks.length,
+            checkedOutpoints:
+                (progress?.checkedOffset ?? 0) + Math.min(txids.length, (i + 1) * 20),
+            totalOutpoints: progress?.totalOutpoints ?? txids.length,
+            vout,
         });
     }
+
+    console.log('[vault-unlock] bulk spent check complete', {
+        outpointCount: txids.length,
+        spentCount: spentTxids.size,
+        unspentCount: txids.length - spentTxids.size - unknownOutpointTxids.size,
+        unknownCount: unknownOutpointTxids.size,
+        individualFallbackCount,
+    });
 
     return { spentRows, spentTxids, unknownOutpointTxids };
 };
@@ -390,20 +477,29 @@ const getSpentOutpointsBulk = async (
 export const unlockCoinsBatch = async (
     pkWIF: string,
     receiveAddress: string,
-    txids: string[],
-    oIdx: number = LOCK_LIKE_MINT_LOCK_VOUT,
+    txids: Array<string | BatchUnlockCandidate>,
     onProgress?: (event: BatchUnlockProgressEvent) => void
 ): Promise<BatchUnlockBuildResult> => {
     try {
         if (!txids || txids.length === 0) {
             throw new Error('No txids provided');
         }
-        const txDetails = await getTxsDetailsBulk(txids, onProgress);
-        const { spentRows, spentTxids, unknownOutpointTxids } = await getSpentOutpointsBulk(txids, oIdx, onProgress);
+        const candidates = normalizeUnlockCandidates(txids);
+        if (candidates.length === 0) {
+            throw new Error('No valid txids provided');
+        }
+        const uniqueTxids = Array.from(new Set(candidates.map((candidate) => candidate.txid)));
+        const txDetails = await getTxsDetailsBulk(uniqueTxids, onProgress);
+        const { spentRows, spentTxids, unknownOutpointTxids } =
+            await getSpentOutpointsBulk(
+                uniqueTxids,
+                LOCK_LIKE_MINT_LOCK_VOUT,
+                onProgress
+            );
         // Index details by txid for quick lookup
         const txidToDetail = new Map<string, WocTxDetailRow>();
         for (const d of txDetails) {
-            if (d?.txid) txidToDetail.set(d.txid, d);
+            if (d?.txid) txidToDetail.set(normalizeTxid(d.txid), d);
         }
 
         type InputData = { txid: string; vout: number; satoshis: number; scriptHex: string; script: bsv.Script; };
@@ -417,7 +513,9 @@ export const unlockCoinsBatch = async (
         let totalSatoshis = 0;
         let maxLockedBlockHeight = 0;
 
-        for (const txid of txids) {
+        for (const candidate of candidates) {
+            const { txid } = candidate;
+            const targetVout = candidate.vout;
             const detail = txidToDetail.get(txid);
             if (!detail) {
                 skippedTxids.push(txid);
@@ -440,7 +538,7 @@ export const unlockCoinsBatch = async (
                 continue;
             }
             const vouts = Array.isArray(detail.vout) ? detail.vout : [];
-            const target = vouts.find(v => v?.n === oIdx);
+            const target = vouts.find(v => v?.n === targetVout);
             if (!target || !target.scriptPubKey?.hex) {
                 skippedTxids.push(txid);
                 continue;
@@ -464,7 +562,7 @@ export const unlockCoinsBatch = async (
             if (lockedBlock > maxLockedBlockHeight) {
                 maxLockedBlockHeight = lockedBlock;
             }
-            inputsData.push({ txid, vout: oIdx, satoshis, scriptHex, script });
+            inputsData.push({ txid, vout: targetVout, satoshis, scriptHex, script });
             includedTxids.push(txid);
             totalSatoshis += satoshis;
         }

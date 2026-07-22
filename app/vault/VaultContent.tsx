@@ -21,7 +21,10 @@ import {
 } from "@/app/components/ui/table";
 import { useLikes } from "@/app/hooks/use-likes";
 import { wocTxUrl } from "@/app/lib/explorer";
-import type { BatchUnlockProgressEvent } from "@/app/lib/unlockCoins";
+import type {
+  BatchUnlockCandidate,
+  BatchUnlockProgressEvent,
+} from "@/app/lib/unlockCoins";
 import {
   LOCK_LIKE_MINT_LOCK_VOUT,
   unlockCoinsBatch,
@@ -310,11 +313,18 @@ export default function VaultContent({
 
     try {
       console.log(`[VAULT] Automatic unlock for ${n} likes`);
+      // contract_output_vout identifies the continuing minter output, not the
+      // parallel contract's gated lock. Vault unlocks always spend vout 2.
+      const unlockCandidates: BatchUnlockCandidate[] = likesSnapshot.map(
+        (like) => ({
+          txid: like.txid,
+        }),
+      );
       addLog(
-        `Starting: ${n} row(s), lock vout ${LOCK_LIKE_MINT_LOCK_VOUT} (spent checked on-chain, then Supabase).`,
+        `Starting: ${n} row(s), parallel lock vout ${LOCK_LIKE_MINT_LOCK_VOUT} (spent checked on-chain, then Supabase).`,
       );
       addLog(`Receive address ${receiveAddress}`);
-      const allTxids = likesSnapshot.map((l) => l.txid);
+      const allTxids = unlockCandidates.map((candidate) => candidate.txid);
       addLog(
         `Fetching ${allTxids.length} source transaction${allTxids.length === 1 ? "" : "s"}…`,
       );
@@ -350,7 +360,7 @@ export default function VaultContent({
             ),
           }));
           addLog(
-            `Checked vout ${LOCK_LIKE_MINT_LOCK_VOUT} spend status ${event.chunkIndex}/${event.chunkCount} (${event.checkedOutpoints}/${event.totalOutpoints}).`,
+            `Checked vout ${event.vout ?? LOCK_LIKE_MINT_LOCK_VOUT} spend status ${event.chunkIndex}/${event.chunkCount} (${event.checkedOutpoints}/${event.totalOutpoints}).`,
           );
           return;
         }
@@ -386,13 +396,12 @@ export default function VaultContent({
       const { rawtx, details } = await unlockCoinsBatch(
         pkWIF,
         receiveAddress,
-        allTxids,
-        LOCK_LIKE_MINT_LOCK_VOUT,
+        unlockCandidates,
         handleBuildProgress,
       );
 
       addLog(
-        `Tx details: ${details.fetchedTxDetails}/${details.requestedTxids}; ${details.inputCount} spendable at vout ${LOCK_LIKE_MINT_LOCK_VOUT}.`,
+        `Tx details: ${details.fetchedTxDetails}/${details.requestedTxids}; ${details.inputCount} spendable input${details.inputCount === 1 ? "" : "s"}.`,
       );
       if (details.unconfirmedTxids.length > 0) {
         addLog(
@@ -406,7 +415,7 @@ export default function VaultContent({
       }
       if (details.spentTxids.length > 0) {
         addLog(
-          `Already spent on-chain (vout ${LOCK_LIKE_MINT_LOCK_VOUT}): ${details.spentTxids.map((txid: string) => formatShortTxid(txid, VAULT_SHORT_TXID)).join(", ")}`,
+          `Already spent on-chain: ${details.spentTxids.map((txid: string) => formatShortTxid(txid, VAULT_SHORT_TXID)).join(", ")}`,
         );
       }
       if (details.unknownOutpointTxids.length > 0) {
@@ -455,7 +464,7 @@ export default function VaultContent({
           stepProgressPct: Math.max(prev.stepProgressPct, 72),
         }));
         addLog(
-          `Updating Supabase for ${spentForDb.length} like(s) already spent on-chain (vout ${LOCK_LIKE_MINT_LOCK_VOUT})…`,
+          `Updating Supabase for ${spentForDb.length} like(s) already spent on-chain…`,
         );
         addLog(
           `Mark spent: ${spentForDb.map((row) => formatShortTxid(row.txid, VAULT_SHORT_TXID)).join(", ")}`,
@@ -525,43 +534,44 @@ export default function VaultContent({
       const knownTxids = details.includedTxids?.length
         ? details.includedTxids
         : [];
+      const includedTxidSet = new Set(details.includedTxids ?? []);
+      const syncedLikes = likesSnapshot.filter((like) =>
+        includedTxidSet.has(like.txid.trim().toLowerCase()),
+      );
+      const overlayBsv21Parents = syncedLikes
+        .map((like) => ({
+          originId: like.contract_id.trim(),
+          txid: like.txid.trim(),
+        }))
+        .filter((parent) => parent.originId.length > 0 && parent.txid.length === 64);
+      if (overlayBsv21Parents.length > 0) {
+        addLog(
+          `Requesting ${overlayBsv21Parents.length} overlay parent BEEF${overlayBsv21Parents.length === 1 ? "" : "s"} before WOC fallback…`,
+        );
+      }
       const beefRes = await fetch("/api/beef-cache", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawtx, knownTxids }),
+        body: JSON.stringify({
+          rawtx,
+          knownTxids,
+          overlayBsv21Parents,
+          broadcastArc: true,
+        }),
       });
       if (!beefRes.ok) {
         const errBody = await beefRes.json().catch(() => ({}));
         throw new Error(
           typeof errBody.error === "string"
             ? errBody.error
-            : `BEEF build failed (${beefRes.status})`,
+            : `BEEF build or ARC broadcast failed (${beefRes.status})`,
         );
       }
-      const beefBody = (await beefRes.json()) as { beef?: string };
-      const remoteBeefHex = beefBody.beef?.toString().trim() || null;
-      if (!remoteBeefHex) {
-        throw new Error("Could not build BEEF for the unlock transaction");
-      }
-
       setUnlockStatus((prev) => ({ ...prev, stepProgressPct: 88 }));
-      const response = await fetch("/api/arc-broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ beef: remoteBeefHex }),
-      });
-      if (!response.ok) {
-        const errBody = (await response.json().catch(() => ({}))) as Record<
-          string,
-          unknown
-        >;
-        throw new Error(
-          typeof errBody.error === "string"
-            ? errBody.error
-            : `ARC broadcast failed (${response.status})`,
-        );
-      }
-      const broadcastJson = (await response.json()) as { txid?: string };
+      const broadcastJson = (await beefRes.json()) as {
+        txid?: string;
+        status?: "accepted" | "already-known";
+      };
       const unlockTxid = broadcastJson.txid?.trim();
       if (!unlockTxid) {
         throw new Error("No TXID returned from ARC broadcast");
@@ -575,10 +585,6 @@ export default function VaultContent({
       }
       setUnlockBroadcastTxid(unlockTxid);
 
-      const includedTxidSet = new Set(details.includedTxids ?? []);
-      const syncedLikes = likesSnapshot.filter((like) =>
-        includedTxidSet.has(like.txid),
-      );
       const syncTotal = syncedLikes.length;
       if (syncTotal === 0) {
         throw new Error("No inputs were included in the unlock transaction.");
@@ -968,7 +974,7 @@ export default function VaultContent({
               </DialogTitle>
               {!unlockComplete && !unlockError && (
                 <p className="text-xs sm:text-sm text-muted-foreground font-normal pt-1 leading-snug">
-                  Checking vout {LOCK_LIKE_MINT_LOCK_VOUT}, syncing Supabase, then broadcasting if needed — all automatic.
+                  Checking parallel-contract lock vout {LOCK_LIKE_MINT_LOCK_VOUT}, syncing Supabase, then broadcasting if needed.
                 </p>
               )}
             </DialogHeader>

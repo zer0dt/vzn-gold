@@ -9,6 +9,10 @@ import {
   type PreparedFundingParent,
 } from '@/app/lib/beef-cache'
 import {
+  broadcastBeefDirectToArc,
+  DirectArcBroadcastError,
+} from '@/app/lib/direct-arc-broadcast'
+import {
   LockLikeSubmitError,
   persistLockLikeForCurrentUser,
   type SubmitLockLikeRequest,
@@ -52,11 +56,13 @@ export async function POST(request: Request) {
       originId,
       selectedMinterTxid,
       contractInputTxid,
+      overlayBsv21Parents,
       fundingParentTxids,
       fundingParents,
       overlayParentBeefBase64,
       responseFormat,
       submitOverlay,
+      broadcastArc,
       topics,
       likeSubmit,
     } = await request.json()
@@ -91,6 +97,20 @@ export async function POST(request: Request) {
                 : contractInputTxid.trim(),
           }
         : undefined
+    const parsedOverlayBsv21Parents = Array.isArray(overlayBsv21Parents)
+      ? overlayBsv21Parents
+          .map((parent): { originId: string; txid: string } | null => {
+            if (!parent || typeof parent !== 'object') return null
+            const value = parent as Record<string, unknown>
+            if (typeof value.originId !== 'string' || typeof value.txid !== 'string') return null
+            const originId = value.originId.trim()
+            const txid = value.txid.trim()
+            if (!originId || !/^[0-9a-f]{64}$/i.test(txid)) return null
+            return { originId, txid }
+          })
+          .filter((parent): parent is { originId: string; txid: string } => parent !== null)
+          .slice(0, 250)
+      : []
     const parsedFundingParents: PreparedFundingParent[] = Array.isArray(fundingParents)
       ? fundingParents
           .map((parent): PreparedFundingParent | null => {
@@ -116,6 +136,7 @@ export async function POST(request: Request) {
     const data = await buildCachedBeefFromRawTx(rawtx, {
       knownTxids: parsedKnownTxids,
       overlayBsv21Parent,
+      overlayBsv21Parents: parsedOverlayBsv21Parents,
       overlayParentBeefBase64: parsedOverlayParentBeefBase64,
       fundingParents: parsedFundingParents,
     })
@@ -210,6 +231,32 @@ export async function POST(request: Request) {
       )
     }
 
+    if (broadcastArc === true) {
+      const tArc0 = Date.now()
+      const broadcast = await broadcastBeefDirectToArc(data.beef)
+      const arcBroadcastMs = Date.now() - tArc0
+      const timings = {
+        ...data.timings,
+        buildBeefMs,
+        arcBroadcastMs,
+      }
+
+      console.log('[beef-cache] built and broadcast direct to ARC', {
+        txid: broadcast.txid,
+        status: broadcast.status,
+        beefLength: data.beef.length,
+        timings,
+      })
+
+      return NextResponse.json(
+        {
+          ...broadcast,
+          timings,
+        },
+        { status: 201 }
+      )
+    }
+
     if (responseFormat === 'text' || request.headers.get('accept')?.includes('text/plain')) {
       return new Response(data.beef, {
         headers: {
@@ -221,6 +268,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json(data)
   } catch (error) {
+    if (error instanceof DirectArcBroadcastError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          details: error.details,
+        },
+        { status: error.status }
+      )
+    }
     const message = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
   }

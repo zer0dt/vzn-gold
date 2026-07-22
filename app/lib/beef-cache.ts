@@ -33,6 +33,7 @@ type OverlayBsv21Parent = {
 type BuildCachedBeefOptions = {
   knownTxids?: string[]
   overlayBsv21Parent?: OverlayBsv21Parent
+  overlayBsv21Parents?: OverlayBsv21Parent[]
   /** Base64 BEEF from overlay `?beef=true` when already fetched (e.g. client prefetch). Skips server overlay HTTP when valid. */
   overlayParentBeefBase64?: string
   fundingParents?: PreparedFundingParent[]
@@ -42,6 +43,10 @@ export type BuildCachedBeefTimings = {
   parseRawTxMs: number
   overlayParentBeefFetchMs?: number
   overlayParentBeefSource: 'client-body' | 'cache' | 'overlay' | 'none'
+  overlayParentBeefSources?: Record<'client-body' | 'cache' | 'overlay' | 'none', number>
+  overlayParentBeefRequestedCount?: number
+  overlayParentBeefHitCount?: number
+  overlayParentBeefMissCount?: number
   hydrateMs: number
   serializeBeefMs: number
   elapsedMs: number
@@ -124,6 +129,7 @@ function isOverlayMinterOutput(output: OverlayUnspentOutput, originId: string): 
 const HOT_RAWTX_CACHE_TTL_MS = 15_000
 const hotRawTransactionCache = new Map<string, { rawtx: string; expiresAt: number }>()
 const OVERLAY_PARENT_BEEF_CACHE_TTL_MS = 60_000
+const OVERLAY_PARENT_BEEF_FETCH_CONCURRENCY = 8
 const overlayParentBeefCache = new Map<string, { beefBase64: string; expiresAt: number }>()
 
 function buildBeefV2(tx: Transaction): Beef {
@@ -151,6 +157,73 @@ function transactionToHexAtomicBeef(tx: Transaction, seedBeef?: Beef): string {
   }
 
   return Buffer.from(beef.toBinaryAtomic(tipTxid)).toString('hex')
+}
+
+export function dedupeOverlayParents(parents: OverlayBsv21Parent[]): OverlayBsv21Parent[] {
+  const seen = new Set<string>()
+  const deduped: OverlayBsv21Parent[] = []
+
+  for (const parent of parents) {
+    const originId = parent.originId.trim()
+    const txid = parent.txid.trim().toLowerCase()
+    if (!originId || !isValidTxid(txid)) {
+      continue
+    }
+
+    const key = `${originId}:${txid}`
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    deduped.push({ originId, txid })
+  }
+
+  return deduped
+}
+
+function mergeOverlayParentBeef(seed: Beef, parentBeef: Beef, parent: OverlayBsv21Parent): boolean {
+  if (!parentBeef.findTxid(parent.txid)) {
+    console.warn('[beef-cache] overlay parent BEEF txid mismatch; ignoring seed', {
+      originId: parent.originId,
+      txid: parent.txid,
+    })
+    return false
+  }
+
+  const maybeMergeBeef = seed as unknown as { mergeBeef?: (beef: Beef) => void }
+  if (typeof maybeMergeBeef.mergeBeef === 'function') {
+    maybeMergeBeef.mergeBeef(parentBeef)
+    return true
+  }
+
+  const parentTx = parentBeef.findTxid(parent.txid)
+  if (!parentTx) {
+    return false
+  }
+  seed.mergeTransaction(parentTx as unknown as Transaction)
+  return true
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await mapper(items[index])
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
 }
 
 /** Overlay and other non-WOC JSON helpers (no WOC retry layer). */
@@ -646,21 +719,41 @@ export async function buildCachedBeefFromRawTx(
   const knownTxids = normalizedOptions.knownTxids ?? []
   let overlayParentBeefFetchMs: number | undefined
   let overlayParentBeefSource: 'client-body' | 'cache' | 'overlay' | 'none' = 'none'
+  const overlayParentBeefSources: Record<'client-body' | 'cache' | 'overlay' | 'none', number> = {
+    'client-body': 0,
+    cache: 0,
+    overlay: 0,
+    none: 0,
+  }
+  let overlayParentBeefHitCount = 0
   let seedBeef: Beef | null = null
-  const overlayParent = normalizedOptions.overlayBsv21Parent
+  const overlayParents = dedupeOverlayParents([
+    ...(normalizedOptions.overlayBsv21Parents ?? []),
+    ...(normalizedOptions.overlayBsv21Parent ? [normalizedOptions.overlayBsv21Parent] : []),
+  ])
+  const overlayParent = overlayParents[0]
   const prefetchB64 = normalizedOptions.overlayParentBeefBase64?.trim()
 
   if (overlayParent && prefetchB64) {
     const overlayFetchStartedAt = Date.now()
     try {
-      seedBeef = Beef.fromBinary(Array.from(Buffer.from(prefetchB64, 'base64')))
+      const clientBeef = Beef.fromBinary(Array.from(Buffer.from(prefetchB64, 'base64')))
       overlayParentBeefFetchMs = Date.now() - overlayFetchStartedAt
-      overlayParentBeefSource = 'client-body'
-      console.log('[beef-cache] overlay parent BEEF from client prefetch', {
-        elapsedMs: overlayParentBeefFetchMs,
-        originId: overlayParent.originId,
-        txid: overlayParent.txid,
-      })
+      const mergedSeed = new Beef()
+      if (mergeOverlayParentBeef(mergedSeed, clientBeef, overlayParent)) {
+        seedBeef = mergedSeed
+        overlayParentBeefSource = 'client-body'
+        overlayParentBeefSources['client-body'] += 1
+        overlayParentBeefHitCount += 1
+        console.log('[beef-cache] overlay parent BEEF from client prefetch', {
+          elapsedMs: overlayParentBeefFetchMs,
+          originId: overlayParent.originId,
+          txid: overlayParent.txid,
+        })
+      } else {
+        overlayParentBeefSource = 'none'
+        overlayParentBeefSources.none += 1
+      }
     } catch (error) {
       console.warn('[beef-cache] overlay parent BEEF prefetch base64 invalid; fetching server-side', {
         originId: overlayParent.originId,
@@ -670,11 +763,42 @@ export async function buildCachedBeefFromRawTx(
     }
   }
 
-  if (!seedBeef && overlayParent) {
-    const result = await fetchOverlayBsv21ParentBeef(overlayParent)
-    seedBeef = result.beef
-    overlayParentBeefFetchMs = result.elapsedMs
-    overlayParentBeefSource = seedBeef ? result.source : 'none'
+  const parentsToFetch = overlayParents.filter((parent) => {
+    return !seedBeef?.findTxid(parent.txid)
+  })
+  if (parentsToFetch.length > 0) {
+    const overlayFetchStartedAt = Date.now()
+    const results = await mapWithConcurrency(
+      parentsToFetch,
+      OVERLAY_PARENT_BEEF_FETCH_CONCURRENCY,
+      async (parent) => {
+        const result = await fetchOverlayBsv21ParentBeef(parent)
+        return { parent, ...result }
+      }
+    )
+    overlayParentBeefFetchMs = (overlayParentBeefFetchMs ?? 0) + Date.now() - overlayFetchStartedAt
+
+    for (const result of results) {
+      overlayParentBeefSources[result.beef ? result.source : 'none'] += 1
+      if (!result.beef) {
+        continue
+      }
+
+      const nextSeed = seedBeef ?? new Beef()
+      if (mergeOverlayParentBeef(nextSeed, result.beef, result.parent)) {
+        seedBeef = nextSeed
+        overlayParentBeefHitCount += 1
+      }
+    }
+
+    if (overlayParentBeefHitCount > 0) {
+      overlayParentBeefSource =
+        overlayParentBeefSources.overlay > 0
+          ? 'overlay'
+          : overlayParentBeefSources.cache > 0
+            ? 'cache'
+            : 'client-body'
+    }
   }
   const preparedParents = new Map(
     (normalizedOptions.fundingParents ?? [])
@@ -724,6 +848,10 @@ export async function buildCachedBeefFromRawTx(
     parseRawTxMs,
     overlayParentBeefFetchMs,
     overlayParentBeefSource,
+    overlayParentBeefSources,
+    overlayParentBeefRequestedCount: overlayParents.length,
+    overlayParentBeefHitCount,
+    overlayParentBeefMissCount: Math.max(overlayParents.length - overlayParentBeefHitCount, 0),
     hydrateMs,
     serializeBeefMs,
     elapsedMs: Date.now() - startedAt,

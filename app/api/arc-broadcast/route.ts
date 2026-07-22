@@ -44,8 +44,15 @@ function getArcFailureMessage(result: unknown): string | null {
 
   const candidate = result as Record<string, unknown>
   const status = typeof candidate.status === 'string' ? candidate.status.toLowerCase() : ''
+  const txStatus = typeof candidate.txStatus === 'string' ? candidate.txStatus.toLowerCase() : ''
+  const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : ''
 
-  if (status !== 'error') {
+  if (
+    status !== 'error' &&
+    status !== 'rejected' &&
+    txStatus !== 'rejected' &&
+    code !== 'rejected'
+  ) {
     return null
   }
 
@@ -60,6 +67,42 @@ function getArcFailureMessage(result: unknown): string | null {
   return 'ARC broadcast failed'
 }
 
+function extractArcTxid(result: unknown): string | null {
+  if (!result || typeof result !== 'object') {
+    return null
+  }
+
+  const candidate = result as Record<string, unknown>
+  for (const key of ['txid', 'txId', 'tx_id', 'hash'] as const) {
+    const value = candidate[key]
+    if (typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value)) {
+      return value.toLowerCase()
+    }
+  }
+
+  return null
+}
+
+function isAlreadyKnownArcResult(result: unknown): boolean {
+  if (!result || typeof result !== 'object') {
+    return false
+  }
+
+  const candidate = result as Record<string, unknown>
+  const text = ['status', 'message', 'code', 'description', 'title', 'detail', 'extraInfo']
+    .map((key) => candidate[key])
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ')
+    .toLowerCase()
+
+  return /already|duplicate|known|seen|previously/.test(text)
+}
+
+function isAlreadyKnownArcError(details: Record<string, unknown>): boolean {
+  const text = JSON.stringify(details).toLowerCase()
+  return /already|duplicate|known|seen|previously/.test(text)
+}
+
 /** JSON-serializable subset of ARC `tx.broadcast` result for the client. */
 function arcResultForClient(result: unknown): Record<string, string> | undefined {
   if (!result || typeof result !== 'object') {
@@ -69,7 +112,7 @@ function arcResultForClient(result: unknown): Record<string, string> | undefined
   const r = result as Record<string, unknown>
   const out: Record<string, string> = {}
 
-  for (const key of ['status', 'message', 'txid', 'code', 'description'] as const) {
+  for (const key of ['status', 'message', 'txid', 'txId', 'txStatus', 'code', 'description', 'title'] as const) {
     const v = r[key]
     if (typeof v === 'string' && v.length > 0) {
       out[key] = v
@@ -138,7 +181,32 @@ export async function POST(req: Request) {
         )
       }
 
-      return NextResponse.json({ txid, arc: arcResultForClient(result) }, { status: 201 })
+      const arcTxid = extractArcTxid(result)
+      if (arcTxid && arcTxid !== txid) {
+        console.error('ARC broadcast txid mismatch', {
+          localTxid: txid,
+          arcTxid,
+          result,
+        })
+        return NextResponse.json(
+          {
+            error: 'ARC returned a TXID that does not match the submitted transaction',
+            txid,
+            arcTxid,
+            arc: arcResultForClient(result),
+          },
+          { status: 502 }
+        )
+      }
+
+      return NextResponse.json(
+        {
+          txid,
+          status: isAlreadyKnownArcResult(result) ? 'already-known' : 'accepted',
+          arc: arcResultForClient(result),
+        },
+        { status: 201 }
+      )
     } catch (error: unknown) {
       const details = getErrorDetails(error)
       const message =
@@ -150,6 +218,18 @@ export async function POST(req: Request) {
         error: details,
         rawError: error,
       })
+      if (isAlreadyKnownArcError(details)) {
+        return NextResponse.json(
+          {
+            txid,
+            status: 'already-known',
+            arc: {
+              message,
+            },
+          },
+          { status: 201 }
+        )
+      }
       return NextResponse.json({ error: message }, { status: 502 })
     }
   } catch (error: unknown) {
