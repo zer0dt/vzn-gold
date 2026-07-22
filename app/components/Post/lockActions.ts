@@ -964,7 +964,6 @@ export async function handleConfirmLockAction(params: {
     );
 
     setProgress(100);
-    toast({ title: 'Success!', description: 'Like locked successfully!', duration: 2000 });
     console.log('[mint-beef] mint complete', {
       txid,
       timing: mintTiming(),

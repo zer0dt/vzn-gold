@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A single-page architecture map of VZN.gold">
+  <title>VZN.gold — System Architecture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f4efe3;
+      --muted: #a9a294;
+      --faint: #777166;
+      --canvas: #11110f;
+      --surface: #191814;
+      --raised: #211f1a;
+      --line: #39352c;
+      --line-strong: #5a5242;
+      --gold: #f2a72b;
+      --gold-soft: #3c2c12;
+      --blue: #7db8d8;
+      --blue-soft: #152a34;
+      --green: #8fc59c;
+      --green-soft: #172a1d;
+      --red: #dc8c80;
+      --red-soft: #321b18;
+      --violet: #bda4d7;
+      --violet-soft: #281f31;
+      --max: 1480px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    button, input { font: inherit; }
+    a { color: inherit; }
+    code, .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: .92em;
+    }
+    :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      border-right: 1px solid var(--line);
+      padding: 28px 20px;
+      background: #14130f;
+      overflow: auto;
+    }
+    .rail-brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 8px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      font-family: Georgia, serif;
+      font-weight: 700;
+      transform: rotate(45deg);
+    }
+    .mark span { transform: rotate(-45deg); }
+    .rail-brand strong { font-family: Georgia, serif; letter-spacing: -.02em; }
+    .rail-brand small { display: block; color: var(--muted); font-size: 11px; }
+    .rail nav { padding: 22px 0; display: grid; gap: 4px; }
+    .rail nav a {
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 8px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+    }
+    .rail nav a:hover,
+    .rail nav a.active {
+      color: var(--ink);
+      border-color: var(--line);
+      background: var(--surface);
+    }
+    .rail-note {
+      margin-top: 16px;
+      padding: 12px 10px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    main { min-width: 0; }
+    .hero, section {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding-left: clamp(24px, 5vw, 76px);
+      padding-right: clamp(24px, 5vw, 76px);
+    }
+    .hero { padding-top: clamp(64px, 10vw, 140px); padding-bottom: 72px; }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: .18em;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .eyebrow::before { content: ""; width: 32px; height: 1px; background: var(--gold); }
+    h1, h2, h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; }
+    h1 {
+      margin-top: 20px;
+      max-width: 970px;
+      font-size: clamp(48px, 8vw, 112px);
+      line-height: .93;
+      letter-spacing: -.065em;
+      font-weight: 400;
+    }
+    .hero-copy {
+      max-width: 760px;
+      margin: 28px 0 0;
+      color: var(--muted);
+      font-size: clamp(17px, 2vw, 22px);
+    }
+    .hero-rule {
+      margin-top: 52px;
+      border-top: 1px solid var(--line-strong);
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+    }
+    .metric { padding: 20px 12px 0 0; }
+    .metric strong { display: block; font: 400 28px/1 Georgia, serif; color: var(--ink); }
+    .metric span { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+
+    section { padding-top: 84px; padding-bottom: 84px; border-top: 1px solid var(--line); }
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(180px, .55fr) minmax(0, 1fr);
+      gap: 40px;
+      margin-bottom: 44px;
+    }
+    .section-index { color: var(--gold); font: 12px/1.3 "SFMono-Regular", Consolas, monospace; }
+    h2 { font-size: clamp(34px, 5vw, 62px); line-height: 1; letter-spacing: -.045em; font-weight: 400; }
+    .section-intro { align-self: end; color: var(--muted); max-width: 690px; margin: 0; }
+    h3 { font-size: 23px; line-height: 1.15; font-weight: 400; }
+    .label {
+      font-size: 10px;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      color: var(--faint);
+      font-weight: 700;
+    }
+
+    .overview {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: clamp(18px, 3vw, 36px);
+      overflow-x: auto;
+    }
+    .diagram { min-width: 980px; display: grid; gap: 18px; }
+    .layer {
+      display: grid;
+      grid-template-columns: 124px 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+    .layer-name {
+      display: flex;
+      align-items: center;
+      color: var(--faint);
+      font: 11px/1.2 "SFMono-Regular", Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    .nodes { display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px; }
+    .node {
+      position: relative;
+      min-height: 92px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: var(--raised);
+      border-radius: 6px;
+    }
+    .node strong { display: block; font-size: 14px; line-height: 1.25; }
+    .node small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .node::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -19px;
+      height: 18px;
+      width: 1px;
+      background: var(--line-strong);
+    }
+    .layer:last-child .node::after { display: none; }
+    .node.client { border-color: #56401b; background: var(--gold-soft); }
+    .node.server { border-color: #294b5d; background: var(--blue-soft); }
+    .node.data { border-color: #31563a; background: var(--green-soft); }
+    .node.chain { border-color: #5b4930; background: #2a2419; }
+    .node.external { border-style: dashed; background: #181817; }
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 18px; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .dot { width: 9px; height: 9px; border: 1px solid currentColor; }
+    .dot.gold { color: var(--gold); background: var(--gold-soft); }
+    .dot.blue { color: var(--blue); background: var(--blue-soft); }
+    .dot.green { color: var(--green); background: var(--green-soft); }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+    .route {
+      min-height: 180px;
+      padding: 22px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .route code { color: var(--gold); }
+    .route h3 { margin-top: 14px; }
+    .route p { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+    .route .mode { margin-top: 18px; color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+
+    .flow-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+    .flow-tab, .filter {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: transparent;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .flow-tab:hover, .flow-tab.active, .filter:hover, .filter.active {
+      color: var(--canvas);
+      background: var(--gold);
+      border-color: var(--gold);
+    }
+    .flow { display: none; }
+    .flow.active { display: grid; grid-template-columns: 280px 1fr; gap: 42px; }
+    .flow-summary {
+      border-top: 1px solid var(--gold);
+      padding-top: 16px;
+    }
+    .flow-summary p { color: var(--muted); font-size: 13px; }
+    .steps { counter-reset: step; }
+    .step {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 16px;
+      padding: 0 0 28px;
+      position: relative;
+    }
+    .step::before {
+      content: counter(step, decimal-leading-zero);
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--line-strong);
+      border-radius: 50%;
+      color: var(--gold);
+      font: 11px/1 "SFMono-Regular", Consolas, monospace;
+      background: var(--canvas);
+      z-index: 1;
+    }
+    .step::after {
+      content: "";
+      position: absolute;
+      left: 20px;
+      top: 40px;
+      bottom: 0;
+      width: 1px;
+      background: var(--line);
+    }
+    .step:last-child::after { display: none; }
+    .step h3 { font-family: "Avenir Next", Avenir, sans-serif; font-size: 15px; font-weight: 600; }
+    .step p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .step code { color: var(--blue); }
+
+    .contract-strip { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 2px; overflow-x: auto; }
+    .output {
+      min-height: 150px;
+      padding: 16px;
+      background: var(--surface);
+      border-top: 2px solid var(--line-strong);
+    }
+    .output.state { border-color: var(--violet); }
+    .output.lock { border-color: var(--gold); }
+    .output.data-out { border-color: var(--blue); }
+    .output.reward { border-color: var(--green); }
+    .output.fee { border-color: var(--red); }
+    .output .n { color: var(--faint); font: 11px/1 "SFMono-Regular", Consolas, monospace; }
+    .output strong { display: block; margin-top: 20px; font-size: 13px; }
+    .output small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .contract-note { margin-top: 18px; color: var(--muted); font-size: 12px; }
+
+    .api-tools {
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .filters { display: flex; flex-wrap: wrap; gap: 7px; }
+    .search {
+      width: min(100%, 320px);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      padding: 10px 13px;
+      border-radius: 6px;
+    }
+    .api-list { border-top: 1px solid var(--line); }
+    .api-row {
+      display: grid;
+      grid-template-columns: 84px minmax(210px, .8fr) minmax(260px, 1.2fr) 130px;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 10px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .api-row:hover { background: var(--surface); }
+    .api-row[hidden] { display: none; }
+    .method {
+      width: fit-content;
+      min-width: 46px;
+      padding: 3px 6px;
+      text-align: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 3px;
+      color: var(--ink);
+      font: 10px/1.2 "SFMono-Regular", Consolas, monospace;
+    }
+    .method.post { color: var(--green); border-color: #31563a; }
+    .method.patch { color: var(--gold); border-color: #5b4930; }
+    .method.put { color: var(--violet); border-color: #544167; }
+    .api-path { color: var(--blue); overflow-wrap: anywhere; }
+    .api-desc { color: var(--muted); }
+    .api-group { color: var(--faint); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+
+    .data-layout { display: grid; grid-template-columns: 1.25fr .75fr; gap: 28px; }
+    .tables { display: grid; gap: 12px; }
+    .table {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 170px minmax(0, 1fr);
+      gap: 18px;
+    }
+    .table h3 { font-size: 19px; }
+    .table p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .fields { display: flex; flex-wrap: wrap; align-content: start; gap: 6px; }
+    .fields code { border: 1px solid var(--line); padding: 4px 6px; color: var(--muted); font-size: 10px; border-radius: 3px; }
+    .source-truth { border: 1px solid var(--line); padding: 22px; align-self: start; }
+    .truth-item { padding: 17px 0; border-bottom: 1px solid var(--line); }
+    .truth-item:last-child { border-bottom: 0; }
+    .truth-item strong { display: block; color: var(--gold); }
+    .truth-item p { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+    .module-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .module-group { border-top: 1px solid var(--line-strong); padding: 18px 4px 0; }
+    .module-group ul { list-style: none; margin: 16px 0 0; padding: 0; }
+    .module-group li { color: var(--muted); font-size: 12px; padding: 6px 0; }
+    .module-group code { color: var(--blue); overflow-wrap: anywhere; }
+
+    .boundary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .boundary { padding: 22px; border: 1px solid var(--line); background: var(--surface); }
+    .boundary .zone { color: var(--gold); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; }
+    .boundary h3 { margin-top: 12px; }
+    .boundary ul { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+    .boundary li + li { margin-top: 8px; }
+    .warning { color: var(--red); }
+
+    .deploy-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 36px; }
+    .stack {
+      border-left: 1px solid var(--line-strong);
+      padding-left: 22px;
+      display: grid;
+      gap: 20px;
+    }
+    .stack-item span { color: var(--gold); font: 11px/1 "SFMono-Regular", Consolas, monospace; }
+    .stack-item strong { display: block; margin-top: 5px; }
+    .stack-item p { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+    .env-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .env {
+      border: 1px solid var(--line);
+      padding: 12px;
+      min-width: 0;
+    }
+    .env code { color: var(--blue); overflow-wrap: anywhere; }
+    .env small { display: block; margin-top: 5px; color: var(--faint); }
+    .env.secret code { color: var(--red); }
+    .env.public code { color: var(--green); }
+
+    .closing {
+      padding-top: 100px;
+      padding-bottom: 100px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 50px;
+    }
+    .closing blockquote { margin: 0; font: 400 clamp(28px, 4vw, 52px)/1.08 Georgia, serif; letter-spacing: -.035em; }
+    .closing p { color: var(--muted); align-self: end; max-width: 570px; }
+
+    @media (max-width: 1080px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      .route-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .module-grid { grid-template-columns: repeat(2, 1fr); }
+      .boundary-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .hero-rule { grid-template-columns: repeat(3, 1fr); row-gap: 18px; }
+      .section-head, .flow.active, .data-layout, .deploy-grid, .closing { grid-template-columns: 1fr; }
+      .route-grid { grid-template-columns: 1fr; }
+      .api-row { grid-template-columns: 58px 1fr; }
+      .api-desc, .api-group { grid-column: 2; }
+      .module-grid { grid-template-columns: 1fr; }
+      .table { grid-template-columns: 1fr; }
+      .env-grid { grid-template-columns: 1fr; }
+      section { padding-top: 64px; padding-bottom: 64px; }
+    }
+    @media print {
+      :root { color-scheme: light; --canvas: #fff; --surface: #f7f4ed; --raised: #eee9df; --ink: #17140f; --muted: #514b42; --faint: #746d63; --line: #c8c0b1; --line-strong: #938978; }
+      .shell { display: block; }
+      .rail, .api-tools { display: none; }
+      section { break-inside: avoid; }
+      .flow { display: grid !important; grid-template-columns: 280px 1fr; margin-bottom: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="rail-brand">
+        <div class="mark"><span>V</span></div>
+        <div><strong>VZN.gold</strong><small>architecture atlas</small></div>
+      </div>
+      <nav aria-label="Architecture sections">
+        <a href="#overview">01 · System overview</a>
+        <a href="#surfaces">02 · Product surfaces</a>
+        <a href="#flows">03 · Critical flows</a>
+        <a href="#contract">04 · Contract anatomy</a>
+        <a href="#api">05 · API catalog</a>
+        <a href="#data">06 · Data model</a>
+        <a href="#modules">07 · Module map</a>
+        <a href="#trust">08 · Trust boundaries</a>
+        <a href="#deployment">09 · Deployment</a>
+      </nav>
+      <div class="rail-note">
+        Generated from the repository structure and implementation.<br><br>
+        Scope: <span class="mono">app/</span>, <span class="mono">src/</span>, <span class="mono">utils/</span>, configuration, and public infrastructure contracts.
+      </div>
+    </aside>
+
+    <main>
+      <header class="hero" id="top">
+        <div class="eyebrow">Repository architecture · July 2026</div>
+        <h1>Social intent, made economic.</h1>
+        <p class="hero-copy">
+          VZN.gold is a Next.js social network where a “like” locks BSV, publishes a recognizable on-chain social action, and mints $VZN through a parallel BSV-21 smart contract.
+        </p>
+        <div class="hero-rule" aria-label="Repository counts">
+          <div class="metric"><strong>13</strong><span>page routes</span></div>
+          <div class="metric"><strong>32</strong><span>API routes</span></div>
+          <div class="metric"><strong>60</strong><span>UI components</span></div>
+          <div class="metric"><strong>8</strong><span>client hooks</span></div>
+          <div class="metric"><strong>30</strong><span>library modules</span></div>
+          <div class="metric"><strong>1</strong><span>core contract</span></div>
+        </div>
+      </header>
+
+      <section id="overview">
+        <div class="section-head">
+          <div class="section-index">01 / SYSTEM OVERVIEW</div>
+          <div>
+            <h2>Four runtime planes.</h2>
+            <p class="section-intro">The browser owns user intent and unlocked keys. Next.js coordinates application policy. Supabase stores app state. The BSV network and overlay remain the economic source of truth.</p>
+          </div>
+        </div>
+
+        <div class="overview">
+          <div class="diagram" role="img" aria-label="Layered system architecture">
+            <div class="layer">
+              <div class="layer-name">Browser</div>
+              <div class="nodes">
+                <div class="node client span-3"><strong>Next.js App Router UI</strong><small>Feed, post, profiles, vault, wallet, trade, leaderboard, minter tree</small></div>
+                <div class="node client span-3"><strong>React client state</strong><small>AuthContext, WalletProvider, React Query, BlockHeightContext</small></div>
+                <div class="node client span-3"><strong>Local security layer</strong><small>BIP38 + WebAuthn helpers + sessionStorage hot wallet</small></div>
+                <div class="node client span-3"><strong>Transaction builders</strong><small>AIP signing, lock/mint, wallet funding, trade, batch unlock</small></div>
+              </div>
+            </div>
+            <div class="layer">
+              <div class="layer-name">Next.js / AWS</div>
+              <div class="nodes">
+                <div class="node server span-3"><strong>Server components</strong><small>SSR profiles, leaderboard, post pages, metadata, query hydration</small></div>
+                <div class="node server span-3"><strong>Route handlers</strong><small>Auth, posts, replies, likes, profiles, OG images</small></div>
+                <div class="node server span-3"><strong>Chain gateway</strong><small>ARC broadcast, BEEF cache, WOC proxy, block height</small></div>
+                <div class="node server span-3"><strong>Overlay gateway</strong><small>Minter selection, lookup, submit, balances, stats, tree</small></div>
+              </div>
+            </div>
+            <div class="layer">
+              <div class="layer-name">Persistence</div>
+              <div class="nodes">
+                <div class="node data span-4"><strong>Supabase Auth</strong><small>Email/password, OAuth callback, SSR cookie refresh</small></div>
+                <div class="node data span-4"><strong>Postgres + Realtime</strong><small>profiles · posts · replies · likes</small></div>
+                <div class="node data span-4"><strong>Supabase Storage</strong><small>Public profile-images bucket for avatars and covers</small></div>
+              </div>
+            </div>
+            <div class="layer">
+              <div class="layer-name">BSV services</div>
+              <div class="nodes">
+                <div class="node chain span-3"><strong>BSV blockchain</strong><small>Posts, replies, MAP likes, lock UTXOs, BSV-21 token state</small></div>
+                <div class="node external span-3"><strong>BSV21 overlay</strong><small>Live minter branches, event lookup, token balances, submission</small></div>
+                <div class="node external span-3"><strong>TAAL ARC</strong><small>BEEF transaction broadcast and acceptance</small></div>
+                <div class="node external span-3"><strong>WhatsOnChain</strong><small>Chain tip, raw tx, UTXOs, spent status, exchange rate</small></div>
+              </div>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i class="dot gold"></i> user-controlled browser</span>
+            <span><i class="dot blue"></i> application server</span>
+            <span><i class="dot green"></i> app persistence</span>
+            <span><i class="dot"></i> external / chain infrastructure</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="surfaces">
+        <div class="section-head">
+          <div class="section-index">02 / PRODUCT SURFACES</div>
+          <div>
+            <h2>One shell, thirteen entry points.</h2>
+            <p class="section-intro"><span class="mono">SharedLayout</span> adds desktop navigation, network stats, header actions, and a mobile profile control. <span class="mono">/landing</span> and <span class="mono">/tree</span> intentionally render edge-to-edge.</p>
+          </div>
+        </div>
+        <div class="route-grid">
+          <article class="route"><code>/</code><h3>Feed</h3><p>Infinite NEW chronology and lock-ranked TOP views, realtime inserts, optimistic cache updates, post composition.</p><div class="mode">Client · public · app shell</div></article>
+          <article class="route"><code>/tx/[txid]</code><h3>Post detail</h3><p>SSR post lookup, dynamic social metadata, hydrated client post, comments and mint statistics.</p><div class="mode">Server + client · dynamic</div></article>
+          <article class="route"><code>/[username]</code><h3>Public profile</h3><p>Server-loaded profile and prehydrated paginated profile feed with user-specific metadata.</p><div class="mode">Server + client · public</div></article>
+          <article class="route"><code>/trade</code><h3>$VZN market</h3><p>Price history, token balance, listings, completed sales, user orders, list/buy/cancel actions.</p><div class="mode">Client-heavy · app shell</div></article>
+          <article class="route"><code>/leaderboard</code><h3>Lock rankings</h3><p>Ranks profiles by active locked sats and translates total value locked using current BSV/USD.</p><div class="mode">Server data · 60s external cache</div></article>
+          <article class="route"><code>/vault</code><h3>Lock vault</h3><p>Active, unlockable, and spent lock records; batch unlock and mirror-state reconciliation.</p><div class="mode">Protected · unlocked wallet required</div></article>
+          <article class="route"><code>/wallet</code><h3>Wallet</h3><p>Create, encrypt, unlock, fund, send, inspect BSV-21 assets, and manage encrypted wallet backup.</p><div class="mode">Protected · client cryptography</div></article>
+          <article class="route"><code>/profile</code><h3>Account profile</h3><p>Ensures a profile row, edits identity, and uploads avatar or cover images to Supabase Storage.</p><div class="mode">Protected · server action</div></article>
+          <article class="route"><code>/tree</code><h3>Minter tree</h3><p>Standalone visualization of the parallel minter output lineage for the configured token origin.</p><div class="mode">Standalone · overlay-backed</div></article>
+          <article class="route"><code>/login</code><h3>Authentication</h3><p>Email/password, Google OAuth, signup confirmation, and local passkey-assisted sign-in.</p><div class="mode">Public · redirects protected users</div></article>
+          <article class="route"><code>/landing</code><h3>Landing</h3><p>Edge-to-edge product introduction outside the authenticated application chrome.</p><div class="mode">Standalone · public</div></article>
+          <article class="route"><code>/terms</code><h3>Terms</h3><p>Static policy surface rendered inside the standard app shell.</p><div class="mode">Public · static</div></article>
+          <article class="route"><code>/privacy</code><h3>Privacy</h3><p>Static privacy surface rendered inside the standard app shell.</p><div class="mode">Public · static</div></article>
+        </div>
+      </section>
+
+      <section id="flows">
+        <div class="section-head">
+          <div class="section-index">03 / CRITICAL FLOWS</div>
+          <div>
+            <h2>Follow the state transition.</h2>
+            <p class="section-intro">The important architecture is not a folder tree—it is where authority moves between browser keys, app records, chain transactions, and indexed overlay state.</p>
+          </div>
+        </div>
+        <div class="flow-tabs" role="tablist" aria-label="Critical architecture flows">
+          <button class="flow-tab active" data-flow="mint" role="tab" aria-selected="true">Lock · like · mint</button>
+          <button class="flow-tab" data-flow="post" role="tab" aria-selected="false">Post / reply</button>
+          <button class="flow-tab" data-flow="wallet" role="tab" aria-selected="false">Login / wallet</button>
+          <button class="flow-tab" data-flow="unlock" role="tab" aria-selected="false">Vault unlock</button>
+          <button class="flow-tab" data-flow="trade" role="tab" aria-selected="false">Token trade</button>
+        </div>
+
+        <div class="flow active" data-panel="mint">
+          <div class="flow-summary"><span class="label">Economic core</span><h3>Lock · like · mint</h3><p>One client-built transaction atomically selects a live minter branch, locks sats, records social intent, mints a reward, and advances one or two successor branches.</p></div>
+          <div class="steps">
+            <div class="step"><div><h3>Validate intent and unlocked keys</h3><p><code>Post/LockSheet</code> collects the target post; <code>lockActions.ts</code> requires owner and payment WIFs from session-scoped wallet state.</p></div></div>
+            <div class="step"><div><h3>Select a spendable minter branch</h3><p><code>GET /api/overlay/minters</code> queries unspent BSV-21 events, filters the configured origin, excludes locally reserved outpoints, decodes candidates, and prefers remaining supply.</p></div></div>
+            <div class="step"><div><h3>Build the contract transaction</h3><p>The browser reconstructs <code>LockLikeMintBSV21Parallel</code>, derives payment and owner PKHs, fetches chain height, and calls <code>buildTxForMint</code>.</p></div></div>
+            <div class="step"><div><h3>Fund, sign, and assemble BEEF</h3><p>Payment UTXOs and parent transactions are prefetched. The wallet adds funding inputs/change while parent-complete BEEF ancestry is assembled for overlay validation.</p></div></div>
+            <div class="step"><div><h3>Submit and index</h3><p><code>POST /api/beef-cache</code> builds the BEEF, submits the tagged transaction to the BSV21 overlay, and coordinates authenticated like persistence.</p></div></div>
+            <div class="step"><div><h3>Mirror for application UX</h3><p>Only after chain submission, <code>/api/likes/submit</code> writes the lock-like metadata to Supabase. Realtime updates then patch NEW feed caches and invalidate TOP ranking.</p></div></div>
+          </div>
+        </div>
+
+        <div class="flow" data-panel="post">
+          <div class="flow-summary"><span class="label">Subsidized publishing</span><h3>Post / reply</h3><p>The user proves authorship with the owner key; the application pays the small transaction fee from a server-held payment key.</p></div>
+          <div class="steps">
+            <div class="step"><div><h3>Compose in the browser</h3><p>Post or reply text and optional image payload are normalized into BSocial outputs.</p></div></div>
+            <div class="step"><div><h3>Sign authorship locally</h3><p><code>aip-signer.ts</code> uses the unlocked owner WIF to produce the AIP signature and signer address. Raw owner keys never need to reach the server.</p></div></div>
+            <div class="step"><div><h3>Fund on the server</h3><p><code>POST /api/sign-and-pay</code> validates the payload, appends AIP, gets WOC UTXOs for <code>APP_PAYMENT_KEY</code>, builds and signs the funded transaction.</p></div></div>
+            <div class="step"><div><h3>Broadcast and persist</h3><p>The transaction is broadcast, then <code>/api/posts</code> or <code>/api/replies</code> writes the authenticated user’s row into Supabase.</p></div></div>
+            <div class="step"><div><h3>Distribute through Realtime</h3><p><code>useRealtimeUpdates</code> subscribes to Postgres INSERT events and React Query updates visible feeds and comment state.</p></div></div>
+          </div>
+        </div>
+
+        <div class="flow" data-panel="wallet">
+          <div class="flow-summary"><span class="label">Two separate gates</span><h3>Login / wallet</h3><p>A Supabase session authorizes app data. A separately unlocked local wallet authorizes signatures and spends.</p></div>
+          <div class="steps">
+            <div class="step"><div><h3>Authenticate the account</h3><p>Supabase email/password or Google OAuth establishes cookie-backed identity. <code>proxy.ts</code> refreshes sessions and protects wallet, profile, and vault pages.</p></div></div>
+            <div class="step"><div><h3>Create two keys locally</h3><p>The wallet generates an owner key for authorship/token ownership and a payment key for funding and lock spending.</p></div></div>
+            <div class="step"><div><h3>Encrypt before persistence</h3><p>Both WIFs are BIP38-encrypted in the browser with the same password. Supabase profiles store encrypted blobs and public addresses.</p></div></div>
+            <div class="step"><div><h3>Unlock into session scope</h3><p>The browser decrypts BIP38 and writes active WIFs/addresses to <code>sessionStorage</code>. Closing the session or logout removes the hot-wallet state.</p></div></div>
+            <div class="step"><div><h3>Optional passkey convenience</h3><p>WebAuthn helpers protect locally encrypted login or wallet secrets. They are device conveniences—not server-side passwordless identity and not a replacement for BIP38.</p></div></div>
+          </div>
+        </div>
+
+        <div class="flow" data-panel="unlock">
+          <div class="flow-summary"><span class="label">Chain first, mirror second</span><h3>Vault unlock</h3><p>Unlockability comes from the chain’s block height and output script; the Supabase likes table makes the workflow queryable.</p></div>
+          <div class="steps">
+            <div class="step"><div><h3>Load mirrored locks</h3><p><code>GET /api/likes</code> partitions active, unlockable, and spent rows using current block height and <code>unlock_height</code>.</p></div></div>
+            <div class="step"><div><h3>Resolve source transactions</h3><p><code>unlockCoins.ts</code> batches WOC transaction detail and spent-output checks, rejecting missing, unconfirmed, or already-spent inputs.</p></div></div>
+            <div class="step"><div><h3>Build and sign locally</h3><p>The browser spends lock output vout 2 with the payment key, sets locktime to the maximum required height, and calculates a size-based fee.</p></div></div>
+            <div class="step"><div><h3>Broadcast</h3><p>The raw unlock transaction is submitted through the broadcast gateway.</p></div></div>
+            <div class="step"><div><h3>Reconcile the mirror</h3><p>Likes are patched with <code>is_spent</code> and <code>spent_txid</code>; reconciliation routes repair divergence if broadcast succeeds but the database update fails.</p></div></div>
+          </div>
+        </div>
+
+        <div class="flow" data-panel="trade">
+          <div class="flow-summary"><span class="label">Ordinal marketplace</span><h3>Token trade</h3><p>The configured origin ID binds market views and wallet actions to the same $VZN BSV-21 lineage.</p></div>
+          <div class="steps">
+            <div class="step"><div><h3>Resolve token context</h3><p><code>/api/vzn/token-info</code>, <code>/api/vzn/utxos</code>, and overlay balance routes expose metadata, holdings, and live state for the configured origin.</p></div></div>
+            <div class="step"><div><h3>Read market state</h3><p>Trade tabs combine sale history, active ordinal listings, wallet token UTXOs, and current balance.</p></div></div>
+            <div class="step"><div><h3>Construct the chosen action</h3><p><code>WalletProvider</code> lazy-loads <code>js-1sat-ord</code> and builds list, purchase, or cancel transactions with browser-held keys.</p></div></div>
+            <div class="step"><div><h3>Broadcast and refresh</h3><p>The resulting transaction is broadcast and client queries are refreshed to reflect balances, listings, sales, and “My Orders.”</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="contract">
+        <div class="section-head">
+          <div class="section-index">04 / CONTRACT ANATOMY</div>
+          <div>
+            <h2>The transaction is the rulebook.</h2>
+            <p class="section-intro"><span class="mono">LockLikeMintBSV21Parallel</span> uses <span class="mono">SIGHASH_ANYONECANPAY_ALL</span> and commits to the exact output hash. Its mutable state is remaining branch supply and last height.</p>
+          </div>
+        </div>
+        <div class="contract-strip" aria-label="Contract output ordering">
+          <div class="output state"><span class="n">VOUT 0</span><strong>Successor A</strong><small>ceil(remaining / 2), or all remaining supply below split threshold</small></div>
+          <div class="output state"><span class="n">VOUT 1</span><strong>Successor B</strong><small>Optional second live minter branch when split threshold is met</small></div>
+          <div class="output lock"><span class="n">VOUT 2*</span><strong>Locked sats</strong><small>Payment-key PKH, spendable after current height + blocks</small></div>
+          <div class="output data-out"><span class="n">NEXT</span><strong>MAP like</strong><small>Zero-sat OP_FALSE OP_RETURN: app · type=like · target txid</small></div>
+          <div class="output reward"><span class="n">NEXT</span><strong>$VZN reward</strong><small>BSV-21 transfer to owner-key PKH, capped by branch supply</small></div>
+          <div class="output fee"><span class="n">NEXT</span><strong>Service fee</strong><small>Fixed output embedded in contract construction</small></div>
+          <div class="output"><span class="n">FINAL</span><strong>BSV change</strong><small>Wallet funding remainder after outputs and miner fee</small></div>
+        </div>
+        <p class="contract-note">* The lock is vout 2 for the common two-successor shape and vout 1 when only one successor remains. The current vault constant targets vout 2.</p>
+      </section>
+
+      <section id="api">
+        <div class="section-head">
+          <div class="section-index">05 / API CATALOG</div>
+          <div>
+            <h2>Thirty-two server gateways.</h2>
+            <p class="section-intro">Route handlers divide into application data, wallet/chain operations, overlay translation, WhatsOnChain proxies, token market data, auth, and generated social metadata.</p>
+          </div>
+        </div>
+        <div class="api-tools">
+          <div class="filters" aria-label="Filter APIs by group">
+            <button class="filter active" data-filter="all">All</button>
+            <button class="filter" data-filter="app">App data</button>
+            <button class="filter" data-filter="chain">Chain</button>
+            <button class="filter" data-filter="overlay">Overlay</button>
+            <button class="filter" data-filter="woc">WOC</button>
+            <button class="filter" data-filter="market">Market</button>
+            <button class="filter" data-filter="auth">Auth / media</button>
+          </div>
+          <input class="search" id="api-search" type="search" placeholder="Search route or responsibility…" aria-label="Search API routes">
+        </div>
+        <div class="api-list" id="api-list">
+          <div class="api-row" data-group="app"><span class="method">GET</span><code class="api-path">/api/posts</code><span class="api-desc">List posts, optionally by owner key.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method post">POST</span><code class="api-path">/api/posts</code><span class="api-desc">Persist an authenticated post after broadcast.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method">GET</span><code class="api-path">/api/replies</code><span class="api-desc">List replies for a post with profile hydration.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method post">POST</span><code class="api-path">/api/replies</code><span class="api-desc">Persist an authenticated reply after broadcast.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method">GET</span><code class="api-path">/api/likes</code><span class="api-desc">Query active, unlockable, spent, or post-specific lock likes.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method post">POST</span><code class="api-path">/api/likes</code><span class="api-desc">Legacy/basic like mirror insertion.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method post">POST</span><code class="api-path">/api/likes/submit</code><span class="api-desc">Persist full contract and reward metadata for a successful mint.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method patch">PATCH</span><code class="api-path">/api/likes/update-spent</code><span class="api-desc">Mark mirrored lock rows spent after unlock.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method patch">PATCH</span><code class="api-path">/api/likes/delete-stale</code><span class="api-desc">Remove stale lock mirror rows.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method patch">PATCH</span><code class="api-path">/api/likes/reconcile-unlockable</code><span class="api-desc">Reconcile unlockable rows against chain spend state.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method">GET</span><code class="api-path">/api/profiles/me</code><span class="api-desc">Return the authenticated user’s profile and wallet metadata.</span><span class="api-group">App data</span></div>
+          <div class="api-row" data-group="app"><span class="method patch">PATCH</span><code class="api-path">/api/profiles/me</code><span class="api-desc">Update authenticated profile fields and encrypted wallet data.</span><span class="api-group">App data</span></div>
+
+          <div class="api-row" data-group="chain"><span class="method post">POST</span><code class="api-path">/api/sign-and-pay</code><span class="api-desc">Fund AIP-signed posts/replies with the server payment wallet.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method post">POST</span><code class="api-path">/api/arc-broadcast</code><span class="api-desc">Broadcast BEEF through TAAL ARC.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method post">POST</span><code class="api-path">/api/broadcast</code><span class="api-desc">Broadcast a raw transaction through the general gateway.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method">GET</span><code class="api-path">/api/block-height</code><span class="api-desc">Return a cached/retried current BSV chain height.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method">GET</span><code class="api-path">/api/beef-cache</code><span class="api-desc">Read cached BEEF or parent transaction material.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method post">POST</span><code class="api-path">/api/beef-cache</code><span class="api-desc">Prefetch funding parent transactions for BEEF assembly.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method put">PUT</span><code class="api-path">/api/beef-cache</code><span class="api-desc">Validate a broadcast txid and warm the in-process raw-tx cache.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method">GET</span><code class="api-path">/api/network-stats</code><span class="api-desc">Aggregate chain, token, and application network metrics.</span><span class="api-group">Chain</span></div>
+          <div class="api-row" data-group="chain"><span class="method">GET</span><code class="api-path">/api/llm21/tip</code><span class="api-desc">Resolve the current LLM-21 lineage tip/context.</span><span class="api-group">Chain</span></div>
+
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/minters</code><span class="api-desc">Select and decode a live, unreserved minter branch.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/minters/all</code><span class="api-desc">Return all candidate live minter branches.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/minters/tree</code><span class="api-desc">Build the parallel minter lineage tree visualization payload.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/lookup</code><span class="api-desc">Translate app query parameters into overlay lookup requests.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method post">POST</span><code class="api-path">/api/overlay/submit</code><span class="api-desc">Submit tagged BEEF transactions to the BSV21 overlay.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/parent-beef</code><span class="api-desc">Prefetch ancestry for a selected minter branch.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/bsv21/balance</code><span class="api-desc">Read token balance for an address and configured origin.</span><span class="api-group">Overlay</span></div>
+          <div class="api-row" data-group="overlay"><span class="method">GET</span><code class="api-path">/api/overlay/stats</code><span class="api-desc">Expose overlay-level token and minter statistics.</span><span class="api-group">Overlay</span></div>
+
+          <div class="api-row" data-group="woc"><span class="method post">POST</span><code class="api-path">/api/woc/txs</code><span class="api-desc">Bulk proxy for transaction details used by unlock flows.</span><span class="api-group">WOC</span></div>
+          <div class="api-row" data-group="woc"><span class="method post">POST</span><code class="api-path">/api/woc/utxos-spent</code><span class="api-desc">Bulk proxy for output spent-state checks.</span><span class="api-group">WOC</span></div>
+          <div class="api-row" data-group="woc"><span class="method">GET</span><code class="api-path">/api/woc/tx-confirmed-spent</code><span class="api-desc">Resolve confirmed spending transaction for one outpoint.</span><span class="api-group">WOC</span></div>
+
+          <div class="api-row" data-group="market"><span class="method">GET</span><code class="api-path">/api/vzn/token-info</code><span class="api-desc">Aggregate metadata and supply for the configured $VZN origin.</span><span class="api-group">Market</span></div>
+          <div class="api-row" data-group="market"><span class="method">GET</span><code class="api-path">/api/vzn/utxos</code><span class="api-desc">Return wallet BSV-21 UTXOs for the configured token.</span><span class="api-group">Market</span></div>
+          <div class="api-row" data-group="market"><span class="method">GET</span><code class="api-path">/api/vzn/sales</code><span class="api-desc">Return recent token sale history for charting.</span><span class="api-group">Market</span></div>
+
+          <div class="api-row" data-group="auth"><span class="method">GET</span><code class="api-path">/api/auth/callback</code><span class="api-desc">Exchange Supabase auth codes and complete redirects.</span><span class="api-group">Auth / media</span></div>
+          <div class="api-row" data-group="auth"><span class="method">GET</span><code class="api-path">/api/og</code><span class="api-desc">Generate the generic Open Graph image response.</span><span class="api-group">Auth / media</span></div>
+          <div class="api-row" data-group="auth"><span class="method">GET</span><code class="api-path">/api/og/[txid]</code><span class="api-desc">Generate transaction-specific Open Graph imagery.</span><span class="api-group">Auth / media</span></div>
+        </div>
+      </section>
+
+      <section id="data">
+        <div class="section-head">
+          <div class="section-index">06 / DATA MODEL</div>
+          <div>
+            <h2>Queryable mirrors around immutable facts.</h2>
+            <p class="section-intro">The application actively uses four main Supabase tables. Their rows make social and wallet UX fast, while transaction IDs anchor records to the chain. BEEF and raw-transaction caches are in-process, not database tables.</p>
+          </div>
+        </div>
+        <div class="data-layout">
+          <div class="tables">
+            <article class="table"><div><h3>profiles</h3><p>Identity, public wallet addresses, encrypted private-key material, and media URLs.</p></div><div class="fields"><code>user_id</code><code>username</code><code>avatar_url</code><code>cover_url</code><code>owner_address</code><code>payment_address</code><code>owner_key_bip38</code><code>payment_key_bip38</code></div></article>
+            <article class="table"><div><h3>posts</h3><p>Application index of BSocial post transactions.</p></div><div class="fields"><code>txid</code><code>user_id</code><code>content</code><code>has_image</code><code>created_at</code></div></article>
+            <article class="table"><div><h3>replies</h3><p>Application index of reply transactions connected to parent posts.</p></div><div class="fields"><code>txid</code><code>post_txid</code><code>user_id</code><code>content</code><code>has_image</code><code>created_at</code></div></article>
+            <article class="table"><div><h3>likes</h3><p>Mirror of lock-like-mint transactions plus vault lifecycle state.</p></div><div class="fields"><code>txid</code><code>contract_id</code><code>contract_input_txid</code><code>contract_input_vout</code><code>contract_output_vout</code><code>post_txid</code><code>sats_amount</code><code>blocks_locked</code><code>unlock_height</code><code>reward_amount</code><code>is_spent</code><code>spent_txid</code></div></article>
+          </div>
+          <aside class="source-truth">
+            <span class="label">Authority ladder</span>
+            <div class="truth-item"><strong>1 · Contract + blockchain</strong><p>Defines supply, locks, spendability, output order, and transaction existence.</p></div>
+            <div class="truth-item"><strong>2 · BSV21 overlay</strong><p>Indexes token events and identifies live unspent minter branches.</p></div>
+            <div class="truth-item"><strong>3 · Supabase mirror</strong><p>Provides auth-linked social queries, feed ranking inputs, vault state, and realtime UX.</p></div>
+            <div class="truth-item"><strong>4 · React Query cache</strong><p>Optimizes current-session reads and applies optimistic/realtime updates.</p></div>
+            <div class="truth-item"><strong>5 · sessionStorage</strong><p>Holds ephemeral unlocked wallet authority for the active browser session.</p></div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="modules">
+        <div class="section-head">
+          <div class="section-index">07 / MODULE MAP</div>
+          <div>
+            <h2>Where responsibilities live.</h2>
+            <p class="section-intro">The highest-leverage files are grouped by concern below. This is the shortest path for a new engineer entering the repository.</p>
+          </div>
+        </div>
+        <div class="module-grid">
+          <div class="module-group"><span class="label">Application frame</span><ul><li><code>app/layout.tsx</code> — provider composition</li><li><code>app/providers.tsx</code> — Query + height state</li><li><code>SharedLayout.tsx</code> — responsive chrome</li><li><code>proxy.ts</code> — session refresh / route guard</li></ul></div>
+          <div class="module-group"><span class="label">Feed + social</span><ul><li><code>Feed.tsx</code> — NEW/TOP orchestration</li><li><code>Post/index.tsx</code> — post composition</li><li><code>PostActions.tsx</code> — social actions</li><li><code>supabase/posts.ts</code> — feed queries</li><li><code>useRealtimeUpdates.ts</code> — inserts</li></ul></div>
+          <div class="module-group"><span class="label">Wallet + identity</span><ul><li><code>use-wallet.tsx</code> — wallet state/actions</li><li><code>AuthContext.tsx</code> — Supabase identity</li><li><code>passkeys.ts</code> — WebAuthn helpers</li><li><code>passkey-storage.ts</code> — local secrets</li><li><code>wallet-payment.ts</code> — UTXO funding</li></ul></div>
+          <div class="module-group"><span class="label">Contract + mint</span><ul><li><code>LockLikeMintBSV21Parallel.ts</code> — on-chain rules</li><li><code>Post/lockActions.ts</code> — browser mint flow</li><li><code>lock-like-submit.ts</code> — submission</li><li><code>overlay-submit.ts</code> — overlay client</li><li><code>bsv21-minter-pool.ts</code> — candidate rules</li></ul></div>
+          <div class="module-group"><span class="label">BEEF + chain</span><ul><li><code>beef-cache.ts</code> — ancestry retrieval</li><li><code>transaction-progress.ts</code> — status model</li><li><code>woc-retry-fetch.ts</code> — resilient WOC reads</li><li><code>block-height-poll.ts</code> — shared tip polling</li><li><code>unlockCoins.ts</code> — vault spends</li></ul></div>
+          <div class="module-group"><span class="label">Publishing</span><ul><li><code>bsocial-payload.ts</code> — OP_RETURN payloads</li><li><code>aip-signer.ts</code> — owner signatures</li><li><code>post-image-utils.ts</code> — image constraints</li><li><code>/api/sign-and-pay</code> — app-funded tx</li></ul></div>
+          <div class="module-group"><span class="label">Trade + network</span><ul><li><code>TradeTabContent.tsx</code> — marketplace</li><li><code>VZNPriceChart.tsx</code> — sales chart</li><li><code>network-stats-client.ts</code> — stats fetcher</li><li><code>use-vzn-contract-config.ts</code> — token context</li></ul></div>
+          <div class="module-group"><span class="label">Build + deploy</span><ul><li><code>next.config.ts</code> — aliases / images</li><li><code>sst.config.ts</code> — AWS Next.js</li><li><code>open-next.config.ts</code> — Lambda streaming</li><li><code>tailwind.config.ts</code> — visual tokens</li><li><code>artifacts/</code> — compiled contract</li></ul></div>
+        </div>
+      </section>
+
+      <section id="trust">
+        <div class="section-head">
+          <div class="section-index">08 / TRUST BOUNDARIES</div>
+          <div>
+            <h2>Keys, cookies, and irreversible state.</h2>
+            <p class="section-intro">The architecture deliberately separates account identity, wallet authority, server subsidy, app indexing, and consensus-enforced value.</p>
+          </div>
+        </div>
+        <div class="boundary-grid">
+          <article class="boundary"><span class="zone">Browser trust zone</span><h3>User wallet authority</h3><ul><li>Owner and payment private keys are generated and decrypted client-side.</li><li>Raw WIFs live in <code>sessionStorage</code> only while unlocked.</li><li>BIP38-encrypted WIFs are durable profile fields.</li><li class="warning">Lost BIP38 password means no recovery.</li></ul></article>
+          <article class="boundary"><span class="zone">Application trust zone</span><h3>Identity and subsidy</h3><ul><li>Supabase cookies identify the app user.</li><li><code>APP_PAYMENT_KEY</code> subsidizes signed posts/replies.</li><li><code>SUPABASE_SERVICE_ROLE_KEY</code> and <code>ARC_API_KEY</code> are server-only.</li><li>API routes validate payloads and mediate external services.</li></ul></article>
+          <article class="boundary"><span class="zone">Consensus trust zone</span><h3>Economic truth</h3><ul><li>Contract code enforces reward, lock, fee, and successor outputs.</li><li>Blockchain determines UTXO existence and spendability.</li><li>Overlay is an index, not consensus.</li><li>Supabase may temporarily diverge and must be reconciled.</li></ul></article>
+        </div>
+      </section>
+
+      <section id="deployment">
+        <div class="section-head">
+          <div class="section-index">09 / DEPLOYMENT + CONFIG</div>
+          <div>
+            <h2>Next.js on AWS, configured by lineage.</h2>
+            <p class="section-intro">SST deploys the Next.js application to AWS with OpenNext Lambda streaming. The configured origin ID and overlay URL determine which LLM-21 token lineage the deployment follows.</p>
+          </div>
+        </div>
+        <div class="deploy-grid">
+          <div class="stack">
+            <div class="stack-item"><span>01</span><strong>Next.js 16 · React 19</strong><p>App Router, server components, route handlers, dynamic metadata, Suspense, and image optimization.</p></div>
+            <div class="stack-item"><span>02</span><strong>SST 4 · OpenNext</strong><p>AWS deployment, streaming Lambda wrapper, production retention/protection, linked public bucket.</p></div>
+            <div class="stack-item"><span>03</span><strong>Supabase</strong><p>Auth, SSR cookie sessions, Postgres, Realtime, and profile media storage.</p></div>
+            <div class="stack-item"><span>04</span><strong>BSV service mesh</strong><p>BSV21 overlay, TAAL ARC, WhatsOnChain, Bitails, and GorillaPool ordinal marketplace APIs.</p></div>
+          </div>
+          <div>
+            <span class="label">Environment contract</span>
+            <div class="env-grid" style="margin-top:16px">
+              <div class="env public"><code>NEXT_PUBLIC_LLM21_ORIGIN_ID</code><small>Token / contract lineage</small></div>
+              <div class="env public"><code>NEXT_PUBLIC_APP_NAME</code><small>MAP and BSocial app identifier</small></div>
+              <div class="env public"><code>NEXT_PUBLIC_SUPABASE_URL</code><small>Supabase project endpoint</small></div>
+              <div class="env public"><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code><small>Browser-safe Supabase key</small></div>
+              <div class="env"><code>OVERLAY_URL</code><small>BSV21 overlay base URL</small></div>
+              <div class="env"><code>OVERLAY_TOPIC</code><small>Documented template value; runtime topics are derived from origin ID</small></div>
+              <div class="env secret"><code>SUPABASE_SERVICE_ROLE_KEY</code><small>Privileged database access</small></div>
+              <div class="env secret"><code>APP_PAYMENT_KEY</code><small>Server post/reply funding WIF</small></div>
+              <div class="env secret"><code>ARC_API_KEY</code><small>TAAL ARC authorization</small></div>
+              <div class="env"><code>ANALYZE</code><small>Optional Next bundle analyzer</small></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing">
+        <blockquote>“The app is a coordinator around an on-chain social primitive.”</blockquote>
+        <p>Read the architecture from the center outward: the contract defines valid economic behavior; browser-held keys express user intent; chain gateways broadcast and index it; Supabase turns those immutable facts into responsive product experiences.</p>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.flow-tab');
+    const panels = document.querySelectorAll('.flow');
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((item) => {
+          item.classList.toggle('active', item === tab);
+          item.setAttribute('aria-selected', item === tab ? 'true' : 'false');
+        });
+        panels.forEach((panel) => panel.classList.toggle('active', panel.dataset.panel === tab.dataset.flow));
+      });
+    });
+
+    const filters = document.querySelectorAll('.filter');
+    const apiRows = document.querySelectorAll('.api-row');
+    const search = document.getElementById('api-search');
+    let activeGroup = 'all';
+
+    function applyApiFilter() {
+      const term = search.value.trim().toLowerCase();
+      apiRows.forEach((row) => {
+        const groupMatch = activeGroup === 'all' || row.dataset.group === activeGroup;
+        const textMatch = !term || row.textContent.toLowerCase().includes(term);
+        row.hidden = !(groupMatch && textMatch);
+      });
+    }
+    filters.forEach((filter) => {
+      filter.addEventListener('click', () => {
+        activeGroup = filter.dataset.filter;
+        filters.forEach((item) => item.classList.toggle('active', item === filter));
+        applyApiFilter();
+      });
+    });
+    search.addEventListener('input', applyApiFilter);
+
+    const navLinks = [...document.querySelectorAll('.rail nav a')];
+    const sections = navLinks.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        navLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === '#' + entry.target.id));
+      });
+    }, { rootMargin: '-20% 0px -65% 0px' });
+    sections.forEach((section) => observer.observe(section));
+  </script>
+</body>
+</html>

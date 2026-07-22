@@ -199,10 +199,10 @@ export const PostActions = React.memo(
               variant="ghost"
               size="icon"
               className={cn(
-                "h-6 w-6 rounded-full hover:bg-amber-400/10 transition-colors group",
+                "h-6 w-6 rounded-full hover:bg-blue-500/10 transition-colors group",
                 hasResolvedBlockHeight && activeLikes.length > 0
-                  ? "text-amber-500 dark:text-amber-400"
-                  : "text-muted-foreground hover:text-amber-500 dark:hover:text-amber-300",
+                  ? "text-blue-600 dark:text-blue-300"
+                  : "text-muted-foreground hover:text-blue-600 dark:hover:text-blue-300",
               )}
               onClick={handleShowLockClick}
               title={
@@ -217,18 +217,15 @@ export const PostActions = React.memo(
                 state="listening"
                 size={20}
                 speed={0.7}
-                theme={
-                  hasResolvedBlockHeight && totalLockedSats > 0
-                    ? "dark"
-                    : "auto"
-                }
+                theme="auto"
+                className={cn(
+                  hasResolvedBlockHeight &&
+                    totalLockedSats > 0 &&
+                    "[filter:brightness(0)_saturate(100%)_invert(34%)_sepia(99%)_saturate(3180%)_hue-rotate(216deg)_brightness(96%)_contrast(91%)] dark:[filter:brightness(0)_saturate(100%)_invert(81%)_sepia(16%)_saturate(1153%)_hue-rotate(182deg)_brightness(102%)_contrast(98%)]",
+                )}
                 style={{
                   width: 24,
                   height: 24,
-                  filter:
-                    hasResolvedBlockHeight && totalLockedSats > 0
-                      ? "brightness(0) saturate(100%) invert(72%) sepia(86%) saturate(1000%) hue-rotate(350deg) brightness(103%) contrast(95%)"
-                      : undefined,
                 }}
               />
             </Button>
@@ -255,7 +252,7 @@ export const PostActions = React.memo(
                     className={cn(
                       "transition-transform font-medium font-post-mono tabular-nums",
                       hasResolvedBlockHeight && totalLockedSats > 0
-                        ? "text-amber-600 dark:text-amber-300"
+                        ? "text-blue-600 dark:text-blue-300"
                         : "",
                       isAmountAnimating && "animate-scale-bounce",
                     )}
