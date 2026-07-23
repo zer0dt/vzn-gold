@@ -89,7 +89,31 @@ function isRemainingMinterOutput(output: OverlayOutputData, originId: string): b
   )
 }
 
-async function fetchRemainingTokensFromOverlay(originId: string, options?: { refresh?: boolean }) {
+/** Payee / wallet holdings: transfer outputs with an address (mint rewards + later moves). */
+function isPayeeTokenOutput(output: OverlayOutputData, originId: string): boolean {
+  const bsv21 = output.data?.bsv21
+  if (!bsv21) return false
+
+  return (
+    bsv21.id === originId &&
+    typeof bsv21.address === 'string' &&
+    bsv21.address.length > 0 &&
+    typeof bsv21.amt === 'string' &&
+    /^[0-9]+$/.test(bsv21.amt)
+  )
+}
+
+type OverlaySupplyBreakdown = {
+  /** Unspent minter-pool supply (vout 0/1, no address). */
+  remainingFromMinters: number
+  /** Unspent addressed token supply — actual minted/circulating to wallets. */
+  mintedFromPayees: number
+}
+
+async function fetchSupplyBreakdownFromOverlay(
+  originId: string,
+  options?: { refresh?: boolean }
+): Promise<OverlaySupplyBreakdown> {
   const topic = `tm_${originId}`
   const event = `id:${originId}`
   const query = new URLSearchParams({ limit: '1000' })
@@ -113,12 +137,22 @@ async function fetchRemainingTokensFromOverlay(originId: string, options?: { ref
     throw new Error('Overlay token outputs response was not an array')
   }
 
-  return outputs.reduce((sum, output) => {
-    const overlayOutput = output as OverlayOutputData
-    if (!isRemainingMinterOutput(overlayOutput, originId)) return sum
+  let remainingFromMinters = 0
+  let mintedFromPayees = 0
 
-    return sum + parseAmount(overlayOutput.data?.bsv21?.amt)
-  }, 0)
+  for (const output of outputs) {
+    const overlayOutput = output as OverlayOutputData
+    const amt = overlayOutput.data?.bsv21?.amt
+    if (typeof amt !== 'string' || !/^[0-9]+$/.test(amt)) continue
+
+    if (isRemainingMinterOutput(overlayOutput, originId)) {
+      remainingFromMinters += parseAmount(amt)
+    } else if (isPayeeTokenOutput(overlayOutput, originId)) {
+      mintedFromPayees += parseAmount(amt)
+    }
+  }
+
+  return { remainingFromMinters, mintedFromPayees }
 }
 
 async function fetchMintedSupply(options?: { refresh?: boolean }) {
@@ -133,12 +167,12 @@ async function fetchMintedSupply(options?: { refresh?: boolean }) {
     ? { cache: 'no-store' as const }
     : undefined
 
-  const [tokenInfoResponse, remainingTokens] = await Promise.all([
+  const [tokenInfoResponse, supply] = await Promise.all([
     fetch(
       tokenInfoUrl,
       fetchOptions ?? { next: { revalidate: IMMUTABLE_REVALIDATE_SECONDS } }
     ),
-    fetchRemainingTokensFromOverlay(originId, options),
+    fetchSupplyBreakdownFromOverlay(originId, options),
   ])
 
   if (!tokenInfoResponse.ok) {
@@ -148,7 +182,13 @@ async function fetchMintedSupply(options?: { refresh?: boolean }) {
   const tokenInfo = (await tokenInfoResponse.json()) as GorillaTokenInfoResponse
 
   const totalTokens = parseAmount(tokenInfo.amt)
-  const mintedTokens = Math.max(totalTokens - remainingTokens, 0)
+
+  // Prefer payee holdings for "minted". `total - minterRemaining` overstates minted when the
+  // parallel mint tree has gaps (spent parents / missing tips) on the overlay — locally that
+  // showed ~1.3B minted while wallet transfers only summed to ~114k.
+  const treeMinted = Math.max(totalTokens - supply.remainingFromMinters, 0)
+  const mintedTokens = supply.mintedFromPayees > 0 ? supply.mintedFromPayees : treeMinted
+  const remainingTokens = Math.max(totalTokens - mintedTokens, 0)
 
   const rawSym = typeof tokenInfo.sym === 'string' ? tokenInfo.sym.trim() : ''
   const symbol = rawSym.startsWith('$') ? rawSym.slice(1).trim() : rawSym

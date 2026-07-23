@@ -10,6 +10,7 @@ import { useWallet } from "@/app/hooks/use-wallet";
 import { useNetworkStats } from '@/app/hooks/use-network-stats';
 import { useVznContractConfig } from '@/app/hooks/use-vzn-contract-config';
 import { formatTokenTicker } from '@/app/lib/formatTokenTicker';
+import { ensureLlmArtifactPrefetch, startLockMintPrefetch } from '@/app/lib/mint-prefetch';
 import { formatProgressElapsedTime, getTransactionProgressLabel } from '@/app/lib/transaction-progress';
 
 type LockSheetProps = {
@@ -73,7 +74,7 @@ export const LockSheet = ({
   const [successTxid, setSuccessTxid] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
-  const { isWalletReady } = useWallet();
+  const { isWalletReady, walletAddress } = useWallet();
 
   const handleOpenChange = (open: boolean) => {
     onOpenChange(open);
@@ -138,6 +139,26 @@ export const LockSheet = ({
       if (interval) window.clearInterval(interval);
     };
   }, [isLocking]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    void ensureLlmArtifactPrefetch().catch((error) => {
+      console.warn('[mint-prefetch] artifact failed', error);
+    });
+
+    if (!user || !isWalletReady) {
+      return;
+    }
+
+    startLockMintPrefetch({
+      originId: process.env.NEXT_PUBLIC_LLM21_ORIGIN_ID,
+      fundingAddress: walletAddress,
+      contractSats,
+    });
+  }, [contractSats, isOpen, isWalletReady, user, walletAddress]);
 
   const handleLoginClick = () => {
     handleOpenChange(false);

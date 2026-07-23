@@ -2,17 +2,16 @@ import { bsv, PubKeyHash, toByteString, TestWallet, type MethodCallOptions } fro
 import { OrdiProvider } from 'scrypt-ord';
 import { PrivateKey, Hash } from '@bsv/sdk';
 import { LockLikeMintBSV21Parallel } from '@/src/contracts/LockLikeMintBSV21Parallel';
-import llmArtifact from '@/artifacts/LockLikeMintBSV21Parallel.json';
 import type { Post as PostType } from '@/types';
 import { syncLikeAcrossPostCaches, type HydratedPost } from '@/app/lib/supabase/posts';
+import { installMintLogCapture } from '@/app/lib/mint-log-capture';
+import {
+  ensureLlmArtifactPrefetch,
+  getPrefetchedFundingState,
+  startOverlayMinterBeefPrefetch,
+  takePrefetchedOverlayMinter,
+} from '@/app/lib/mint-prefetch';
 
-let llmArtifactLoadPromise: Promise<unknown> | null = null;
-function ensureLlmArtifactLoaded(): Promise<unknown> {
-  if (!llmArtifactLoadPromise) {
-    llmArtifactLoadPromise = Promise.resolve(LockLikeMintBSV21Parallel.loadArtifact(llmArtifact as any));
-  }
-  return llmArtifactLoadPromise;
-}
 type ToastFunction = typeof import('@/app/hooks/use-toast').toast;
 
 /** Extra sats required from funding inputs beyond (outputs − contract UTXO); pays miner fee + ARC relay floor (HTTP 465 below ~15k). */
@@ -255,6 +254,8 @@ export async function handleConfirmLockAction(params: {
   setIsProcessing: (v: boolean) => void;
   setProgress: (v: number) => void;
 }): Promise<string | null> {
+  installMintLogCapture();
+
   const {
     satsToLock,
     blocksToLock,
@@ -338,7 +339,29 @@ export async function handleConfirmLockAction(params: {
   try {
     async function fetchLiveMinterFromOverlay(originId: string): Promise<OverlayMinterResponse> {
       const tMinter0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const excluded = getPendingMintContractOutpointKeys()
+      const excludedKeys = getPendingMintContractOutpointKeys();
+      const prefetched = await takePrefetchedOverlayMinter({ originId, excludeKeys: excludedKeys });
+      if (prefetched) {
+        const data = prefetched.data;
+        console.log('[mint-beef] selected overlay minter', {
+          mintId,
+          txid: data.txid,
+          outputIndex: data.outputIndex,
+          supply: data.supply,
+          overlayAmount: data.overlayAmount,
+          candidateCount: data.candidateCount,
+          serverTimings: data.timings,
+          rawtxLength: data.rawtx.length,
+          fromPrefetch: true,
+          prefetchAgeMs: prefetched.ageMs,
+          prefetchWaitMs: prefetched.waitMs,
+          timing: mintTiming(tMinter0),
+        });
+
+        return data;
+      }
+
+      const excluded = excludedKeys
         .map((key) => `exclude=${encodeURIComponent(key)}`)
         .join('&');
       const res = await fetch(
@@ -364,6 +387,7 @@ export async function handleConfirmLockAction(params: {
         candidateCount: data.candidateCount,
         serverTimings: data.timings,
         rawtxLength: data.rawtx.length,
+        fromPrefetch: false,
         timing: mintTiming(tMinter0),
       });
 
@@ -432,61 +456,73 @@ export async function handleConfirmLockAction(params: {
 
     const tFundingFetch0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const walletPaymentModulePromise = import('@/app/lib/wallet-payment');
-    const availableFundingUtxosPromise: Promise<FundingUtxoPrefetchResult> = walletPaymentModulePromise
-      .then(({ fetchAvailablePaymentUTXOs }) =>
-        (fetchAvailablePaymentUTXOs(fundingAddress) as Promise<AvailablePaymentUtxo[]>).then((utxos) => ({ utxos }))
-      )
-      .catch((error) => ({ error }));
+    const excludedFundingKeysAtStart = getPendingMintFundingOutpointKeys();
+    const prefetchedFundingState = getPrefetchedFundingState({
+      fundingAddress,
+      satsToLock,
+      excludeKeys: excludedFundingKeysAtStart,
+    });
+    const availableFundingUtxosPromise: Promise<FundingUtxoPrefetchResult> =
+      prefetchedFundingState?.availableFundingUtxosPromise ??
+      walletPaymentModulePromise
+        .then(({ fetchAvailablePaymentUTXOs }) =>
+          (fetchAvailablePaymentUTXOs(fundingAddress) as Promise<AvailablePaymentUtxo[]>).then((utxos) => ({ utxos }))
+        )
+        .catch((error) => ({ error }));
     console.log('[mint-beef] funding UTXOs prefetch start', {
       mintId,
       fundingAddress,
+      fromPrefetch: Boolean(prefetchedFundingState),
+      prefetchAgeMs: prefetchedFundingState?.ageMs,
       timing: mintTiming(undefined, { mark: false }),
     });
-    const earlyFundingParentPrefetchPromise = Promise.all([
-      walletPaymentModulePromise,
-      availableFundingUtxosPromise,
-    ])
-      .then(([{ selectPaymentUTXOs }, availableResult]) => {
-        if ('error' in availableResult) {
-          return null;
-        }
+    const earlyFundingParentPrefetchPromise =
+      prefetchedFundingState?.earlyFundingParentPrefetchPromise ??
+      Promise.all([
+        walletPaymentModulePromise,
+        availableFundingUtxosPromise,
+      ])
+        .then(([{ selectPaymentUTXOs }, availableResult]) => {
+          if ('error' in availableResult) {
+            return null;
+          }
 
-        // The exact requirement adds only the contract's small non-lock outputs to this value.
-        // If that changes the selected coin, the exact-selection path below starts a replacement prefetch.
-        const preliminaryRequiredSatoshis = Math.max(
-          1,
-          satsToLock + MINT_FUNDING_INPUT_HEADROOM_SATS
-        );
-        const preliminaryUtxos = selectPaymentUTXOs(
-          fundingAddress,
-          preliminaryRequiredSatoshis,
-          availableResult.utxos,
-          getPendingMintFundingOutpointKeys()
-        ) as PaymentUtxo[];
-        if (preliminaryUtxos.length === 0) {
-          return null;
-        }
+          // The exact requirement adds only the contract's small non-lock outputs to this value.
+          // If that changes the selected coin, the exact-selection path below starts a replacement prefetch.
+          const preliminaryRequiredSatoshis = Math.max(
+            1,
+            satsToLock + MINT_FUNDING_INPUT_HEADROOM_SATS
+          );
+          const preliminaryUtxos = selectPaymentUTXOs(
+            fundingAddress,
+            preliminaryRequiredSatoshis,
+            availableResult.utxos,
+            excludedFundingKeysAtStart
+          ) as PaymentUtxo[];
+          if (preliminaryUtxos.length === 0) {
+            return null;
+          }
 
-        const outpointKeys = preliminaryUtxos.map((utxo) =>
-          toFundingOutpointKey(utxo.txId, utxo.outputIndex)
-        );
-        const fundingParentTxids = Array.from(
-          new Set(preliminaryUtxos.map((utxo) => utxo.txId).filter(Boolean))
-        );
-        return {
-          outpointKeys,
-          fundingParentTxids,
-          prefetchPromise: startFundingParentPrefetch(fundingParentTxids, 'early'),
-        };
-      })
-      .catch((error) => {
-        console.warn('[mint-beef] early funding parent selection failed', { mintId, error });
-        return null;
-      });
+          const outpointKeys = preliminaryUtxos.map((utxo) =>
+            toFundingOutpointKey(utxo.txId, utxo.outputIndex)
+          );
+          const fundingParentTxids = Array.from(
+            new Set(preliminaryUtxos.map((utxo) => utxo.txId).filter(Boolean))
+          );
+          return {
+            outpointKeys,
+            fundingParentTxids,
+            prefetchPromise: startFundingParentPrefetch(fundingParentTxids, 'early'),
+          };
+        })
+        .catch((error) => {
+          console.warn('[mint-beef] early funding parent selection failed', { mintId, error });
+          return null;
+        });
 
     const tInitialLookup0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const [, latestBlockHeight, selectedMinter] = await Promise.all([
-      ensureLlmArtifactLoaded(),
+      ensureLlmArtifactPrefetch(),
       fetchBlockHeight(blockHeight),
       fetchLiveMinterFromOverlay(originId),
     ]);
@@ -497,59 +533,10 @@ export async function handleConfirmLockAction(params: {
       timing: mintTiming(tInitialLookup0),
     });
 
-    const tOverlayMinterBeef0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const overlayMinterBeefPrefetchPromise = (async (): Promise<{
-      prefetched: boolean;
-      elapsedMs: number;
-      source?: string;
-      beefBase64Chars?: number;
-    }> => {
-      try {
-        const res = await fetch(
-          `/api/overlay/parent-beef?originId=${encodeURIComponent(originId)}&txid=${encodeURIComponent(selectedMinter.txid)}`,
-          { cache: 'no-store' }
-        );
-        const elapsedMs = Math.round(
-          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tOverlayMinterBeef0
-        );
-        if (!res.ok) {
-          console.warn('[mint-beef] overlay minter BEEF prefetch failed', {
-            mintId,
-            status: res.status,
-            statusText: res.statusText,
-            elapsedMs,
-            txid: selectedMinter.txid,
-          });
-          return { prefetched: false, elapsedMs };
-        }
-        const body = (await res.json()) as {
-          prefetched?: boolean;
-          elapsedMs?: number;
-          source?: string;
-          beefBase64Chars?: number;
-        };
-        console.log('[mint-beef] overlay minter BEEF prefetch ok', {
-          mintId,
-          elapsedMs: body.elapsedMs ?? elapsedMs,
-          beefBase64Chars: body.beefBase64Chars ?? 0,
-          prefetched: Boolean(body.prefetched),
-          source: body.source,
-          txid: selectedMinter.txid,
-        });
-        return {
-          prefetched: Boolean(body.prefetched),
-          elapsedMs: body.elapsedMs ?? elapsedMs,
-          source: body.source,
-          beefBase64Chars: body.beefBase64Chars,
-        };
-      } catch (error) {
-        const elapsedMs = Math.round(
-          (typeof performance !== 'undefined' ? performance.now() : Date.now()) - tOverlayMinterBeef0
-        );
-        console.warn('[mint-beef] overlay minter BEEF prefetch threw', { mintId, error, elapsedMs });
-        return { prefetched: false, elapsedMs };
-      }
-    })();
+    const overlayMinterBeefPrefetchPromise = startOverlayMinterBeefPrefetch({
+      originId,
+      txid: selectedMinter.txid,
+    });
 
     reservedContractOutpointKey = toFundingOutpointKey(selectedMinter.txid, selectedMinter.outputIndex);
     reservePendingMintContractOutpointKey(reservedContractOutpointKey);
@@ -747,6 +734,7 @@ export async function handleConfirmLockAction(params: {
     const tUnlock1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
     const unlockingAsm = unlockingScript.toASM();
     console.log('[mint-beef] unlock script', {
+      mintId,
       ms: Math.round(tUnlock1 - tUnlock0),
       asmChars: unlockingAsm.length,
       inputCount: builtTx.inputs.length,
@@ -764,6 +752,7 @@ export async function handleConfirmLockAction(params: {
 
     const rawtx = builtTx.toString();
     console.log('[mint-beef] tx serialized (pre-beef-cache)', {
+      mintId,
       signMs: fundingAdded ? Math.round(tSign1 - tSign0) : 0,
       rawtxChars: rawtx.length,
       inputCount: builtTx.inputs.length,
@@ -805,6 +794,8 @@ export async function handleConfirmLockAction(params: {
         overlayMinterBeefPrefetched: overlayMinterBeefPrefetch.prefetched,
         overlayMinterBeefPrefetchSource: overlayMinterBeefPrefetch.source,
         overlayMinterBeefBase64Chars: overlayMinterBeefPrefetch.beefBase64Chars ?? 0,
+        overlayMinterBeefFromPrefetch: overlayMinterBeefPrefetch.fromPrefetch,
+        overlayMinterBeefPrefetchAgeMs: overlayMinterBeefPrefetch.ageMs,
         timing: mintTiming(undefined, { mark: false }),
       });
       setProgress(80);
@@ -965,6 +956,7 @@ export async function handleConfirmLockAction(params: {
 
     setProgress(100);
     console.log('[mint-beef] mint complete', {
+      mintId,
       txid,
       timing: mintTiming(),
     });

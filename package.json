@@ -5,6 +5,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "local:logs": "node scripts/local-with-logs.mjs",
     "format": "biome format --write .",
     "knip": "knip",
     "deps:circular": "madge --circular --extensions ts,tsx --exclude '^(node_modules|\\.next|\\.sst)' .",

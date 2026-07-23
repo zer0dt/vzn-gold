@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { bsv } from 'scrypt-ts'
 
-import parallelArtifact from '@/artifacts/LockLikeMintBSV21Parallel.json'
 import { getRawTransactionHexForTxid } from '@/app/lib/beef-cache'
 import { isBsv21MinterPoolOp } from '@/app/lib/bsv21-minter-pool'
 import { normalizeOverlayBaseUrl, overlayUpstreamHeaders } from '@/app/lib/overlay-url'
-import { LockLikeMintBSV21Parallel } from '@/src/contracts/LockLikeMintBSV21Parallel'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,18 +24,6 @@ type OverlayOutputData = {
       id?: string
     }
   }
-}
-
-let artifactLoadPromise: Promise<unknown> | null = null
-
-function ensureArtifactLoaded(): Promise<unknown> {
-  if (!artifactLoadPromise) {
-    artifactLoadPromise = Promise.resolve(
-      LockLikeMintBSV21Parallel.loadArtifact(parallelArtifact as any)
-    )
-  }
-
-  return artifactLoadPromise
 }
 
 function overlayOutpoint(output: OverlayOutputData): { txid: string; outputIndex: number } | null {
@@ -94,7 +80,14 @@ function errorMessage(error: unknown): string {
 }
 
 const LOG_PREFIX = '[overlay/minters]'
+/** Used by `?all=true` bulk validation. */
 const CANDIDATE_VALIDATION_CONCURRENCY = 4
+/**
+ * Selection trusts overlay amount ranking (largest first), so only walk
+ * candidates until the first success. Concurrency 1 avoids wasting rawtx
+ * fetches on smaller tips while the largest is still in flight.
+ */
+const MINTER_SELECT_CONCURRENCY = 1
 
 type MinterCandidate = {
   txid: string
@@ -146,6 +139,11 @@ function summarizeUnspentRows(payload: unknown[], originId: string, limit = 40) 
   return { rows, total: payload.length, truncated: payload.length > limit }
 }
 
+/**
+ * Light validation: trust overlay `amt` for supply ranking/selection.
+ * Only fetch rawtx + confirm the output exists. Full contract decode happens
+ * client-side when building the mint unlock.
+ */
 async function validateCandidate(
   candidate: MinterCandidate,
   index: number
@@ -158,6 +156,17 @@ async function validateCandidate(
       overlayAmt: candidate.amount.toString(),
       index,
     })
+
+    if (candidate.amount <= BigInt(0)) {
+      const skipped = {
+        txid: candidate.txid,
+        outputIndex: candidate.outputIndex,
+        reason: 'overlay amount is zero',
+      }
+      console.warn(LOG_PREFIX, 'skip', skipped)
+      return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
+    }
+
     const rawtx = await getRawTransactionHexForTxid(candidate.txid)
     const tx = new bsv.Transaction(rawtx)
     const output = tx.outputs[candidate.outputIndex]
@@ -171,38 +180,24 @@ async function validateCandidate(
       return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
     }
 
-    const fromUTXO = {
-      txId: candidate.txid,
-      outputIndex: candidate.outputIndex,
-      satoshis: output.satoshis,
-      script: output.script.toHex(),
-    }
-    const instance = LockLikeMintBSV21Parallel.fromUTXO(fromUTXO)
-    console.log(LOG_PREFIX, 'decoded contract', {
+    const supply = candidate.amount.toString()
+    console.log(LOG_PREFIX, 'accepted candidate', {
       txid: candidate.txid,
       outputIndex: candidate.outputIndex,
-      supply: instance.supply.toString(),
-      overlayAmt: candidate.amount.toString(),
+      supply,
+      overlayAmt: supply,
       index,
+      elapsedMs: Date.now() - startedAt,
     })
-    if (instance.supply <= BigInt(0)) {
-      const skipped = {
-        txid: candidate.txid,
-        outputIndex: candidate.outputIndex,
-        reason: 'decoded minter has no remaining supply',
-      }
-      console.warn(LOG_PREFIX, 'skip', skipped)
-      return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
-    }
 
     return {
       ok: true,
       index,
       candidate,
       rawtx,
-      satoshis: fromUTXO.satoshis,
-      script: fromUTXO.script,
-      supply: instance.supply.toString(),
+      satoshis: output.satoshis,
+      script: output.script.toHex(),
+      supply,
       elapsedMs: Date.now() - startedAt,
     }
   } catch (error) {
@@ -214,6 +209,69 @@ async function validateCandidate(
     console.warn(LOG_PREFIX, 'candidate error', skipped)
     return { ok: false, index, skipped, elapsedMs: Date.now() - startedAt }
   }
+}
+
+/**
+ * Candidates are pre-sorted largest overlay amount first.
+ * Validate with bounded concurrency, but return as soon as the best-ranked
+ * success is known — do not wait for worse-ranked in-flight work.
+ */
+async function selectLargestValidMinter(candidates: MinterCandidate[]): Promise<{
+  selected: Extract<CandidateValidationResult, { ok: true }> | null
+  skipped: CandidateSkip[]
+}> {
+  const skipped: CandidateSkip[] = []
+  if (candidates.length === 0) {
+    return { selected: null, skipped }
+  }
+
+  const results: Array<CandidateValidationResult | undefined> = Array.from({
+    length: candidates.length,
+  })
+  const inFlight = new Map<number, Promise<void>>()
+  let nextIndex = 0
+  let resolvedUpTo = 0
+
+  const launch = (index: number) => {
+    const promise = validateCandidate(candidates[index], index)
+      .then((result) => {
+        results[index] = result
+      })
+      .finally(() => {
+        inFlight.delete(index)
+      })
+    inFlight.set(index, promise)
+  }
+
+  while (resolvedUpTo < candidates.length) {
+    while (
+      inFlight.size < MINTER_SELECT_CONCURRENCY &&
+      nextIndex < candidates.length
+    ) {
+      launch(nextIndex)
+      nextIndex += 1
+    }
+
+    if (inFlight.size === 0) {
+      break
+    }
+
+    await Promise.race(inFlight.values())
+
+    while (resolvedUpTo < candidates.length && results[resolvedUpTo]) {
+      const result = results[resolvedUpTo]
+      if (!result) break
+
+      if (result.ok) {
+        return { selected: result, skipped }
+      }
+
+      skipped.push(result.skipped)
+      resolvedUpTo += 1
+    }
+  }
+
+  return { selected: null, skipped }
 }
 
 export async function GET(request: Request) {
@@ -241,10 +299,6 @@ export async function GET(request: Request) {
       excludeCount: excluded.size,
       overlayBase: normalizeOverlayBaseUrl(OVERLAY_URL),
     })
-
-    const artifactStartedAt = Date.now()
-    await ensureArtifactLoaded()
-    const artifactMs = Date.now() - artifactStartedAt
 
     const topic = `tm_${originId}`
     const event = `id:${originId}`
@@ -392,7 +446,6 @@ export async function GET(request: Request) {
         candidateCount: candidates.length,
         skipped,
         timings: {
-          artifactMs,
           overlayUnspentMs,
           validationMs,
           elapsedMs: Date.now() - startedAt,
@@ -401,30 +454,10 @@ export async function GET(request: Request) {
       })
     }
 
-    for (let offset = 0; offset < candidates.length; offset += CANDIDATE_VALIDATION_CONCURRENCY) {
-      const batch = candidates.slice(offset, offset + CANDIDATE_VALIDATION_CONCURRENCY)
-      const results = await Promise.all(
-        batch.map((candidate, batchIndex) => validateCandidate(candidate, offset + batchIndex))
-      )
-      const selected = results.find((result): result is Extract<CandidateValidationResult, { ok: true }> => result.ok)
-      if (!selected) {
-        skipped.push(
-          ...results
-            .filter((result): result is Extract<CandidateValidationResult, { ok: false }> => !result.ok)
-            .map((result) => result.skipped)
-        )
-        continue
-      }
+    const { selected, skipped: skippedBeforeSuccess } = await selectLargestValidMinter(candidates)
+    skipped.push(...skippedBeforeSuccess)
 
-      skipped.push(
-        ...results
-          .filter(
-            (result): result is Extract<CandidateValidationResult, { ok: false }> =>
-              !result.ok && result.index < selected.index
-          )
-          .map((result) => result.skipped)
-      )
-
+    if (selected) {
       const validationMs = Date.now() - validationStartedAt
       console.log(LOG_PREFIX, 'selected minter', {
         txid: selected.candidate.txid,
@@ -448,12 +481,11 @@ export async function GET(request: Request) {
         candidateCount: candidates.length,
         skipped,
         timings: {
-          artifactMs,
           overlayUnspentMs,
           validationMs,
           selectedCandidateMs: selected.elapsedMs,
           elapsedMs: Date.now() - startedAt,
-          validationConcurrency: CANDIDATE_VALIDATION_CONCURRENCY,
+          validationConcurrency: MINTER_SELECT_CONCURRENCY,
         },
       })
     }
@@ -470,11 +502,10 @@ export async function GET(request: Request) {
         candidateCount: candidates.length,
         skipped,
         timings: {
-          artifactMs,
           overlayUnspentMs,
           validationMs: Date.now() - validationStartedAt,
           elapsedMs: Date.now() - startedAt,
-          validationConcurrency: CANDIDATE_VALIDATION_CONCURRENCY,
+          validationConcurrency: MINTER_SELECT_CONCURRENCY,
         },
       },
       { status: 404 }
