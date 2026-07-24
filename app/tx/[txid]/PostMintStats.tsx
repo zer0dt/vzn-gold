@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { Loader2, Coins, Users } from 'lucide-react'
+import { Users } from 'lucide-react'
 
 import {
   Avatar,
@@ -54,21 +54,11 @@ export default function PostMintStats({
   const likes = (cachedPost?.likes ?? initialLikes ?? []) as HydratedLike[]
   const likeCount = likes.length || initialLikeCount
 
-  const { data: stats, isLoading } = useNetworkStats()
+  const { data: stats } = useNetworkStats()
 
   const mintLimit = stats?.mintLimit ?? 0
   const symbolLabel = stats?.symbol != null && stats.symbol.trim() !== '' ? formatTokenTicker(stats.symbol) : ''
-
-  const { postMinted, globalMinted, percentOfMinted } = useMemo(() => {
-    const global = stats?.mintedTokens ?? 0
-    const minted = likeCount * mintLimit
-    const pct = global > 0 ? (minted / global) * 100 : 0
-    return {
-      postMinted: minted,
-      globalMinted: global,
-      percentOfMinted: pct,
-    }
-  }, [likeCount, mintLimit, stats?.mintedTokens])
+  const postMinted = likeCount * mintLimit
 
   const holders: HolderRow[] = useMemo(() => {
     if (!likes.length) return []
@@ -104,56 +94,9 @@ export default function PostMintStats({
     return rows
   }, [likes, mintLimit])
 
-  const isReady = !isLoading && stats !== null
-
   return (
     <div className="rounded-2xl border border-border/50 bg-muted/20 overflow-hidden">
-      <div className="flex flex-col px-4 py-3">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <div className="flex items-center gap-2">
-            <Coins className="h-3.5 w-3.5 text-muted-foreground/70" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Minted from this post
-            </span>
-          </div>
-          {isReady && (
-            <span className="font-mono tabular-nums text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {percentOfMinted < 0.01 && percentOfMinted > 0
-                ? '<0.01'
-                : percentOfMinted.toFixed(2)}
-              % of minted
-            </span>
-          )}
-        </div>
-
-        {!isReady ? (
-          <div className="flex items-center justify-center h-10">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground/60" />
-          </div>
-        ) : (
-          <>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-sm font-medium font-mono tabular-nums text-foreground/80">
-                {formatCompactSupply(postMinted)}
-                {symbolLabel ? ` ${symbolLabel}` : ''}
-              </span>
-              <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                of {formatCompactSupply(globalMinted)}
-                {symbolLabel ? ` ${symbolLabel}` : ''}
-              </span>
-            </div>
-
-            <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-muted/50">
-              <div
-                className="h-full rounded-full bg-amber-500/45 transition-[width] duration-500"
-                style={{ width: `${Math.min(Math.max(percentOfMinted, 0), 100)}%` }}
-              />
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="border-t border-border/40 px-4 py-3">
+      <div className="px-4 py-3">
         <div className="flex items-center gap-2 mb-2">
           <Users className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">

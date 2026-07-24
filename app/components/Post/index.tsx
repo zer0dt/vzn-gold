@@ -171,9 +171,10 @@ export const Post = memo(function Post({ post, blockHeight, onReplyAdded, showDi
         className={`relative flex gap-3 pt-3 pb-1 cursor-pointer transition-colors hover:bg-muted/40${showDivider ? ' border-b border-border/60' : ''}`}
         onClick={() => router.push(`/tx/${post.txid}`)}
       >
-        {/* Left: Avatar */}
+        {/* Left: Avatar — self-start so the hit target is only the avatar,
+            not the full post height (flex stretch would steal left-side clicks). */}
         <div 
-          className="flex-shrink-0 cursor-pointer"
+          className="flex-shrink-0 self-start cursor-pointer"
           onClick={(e) => {
             e.stopPropagation();
             const userIdentifier = post.profile?.username || post.user_id;
