@@ -198,6 +198,10 @@ async function persistMintLog(mintId: string, log: MintLogEntry): Promise<void> 
 }
 
 export async function POST(request: Request) {
+  if (process.env.NODE_ENV !== 'development') {
+    return new NextResponse(null, { status: 204 })
+  }
+
   const contentLength = Number(request.headers.get('content-length') ?? 0)
   if (contentLength > MAX_LOG_BODY_BYTES) {
     return NextResponse.json({ error: 'Log entry is too large' }, { status: 413 })

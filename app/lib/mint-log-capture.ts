@@ -31,6 +31,7 @@ function isMintLog(args: unknown[]): boolean {
 
 export function installMintLogCapture(): void {
   if (installed || typeof window === 'undefined') return
+  if (process.env.NODE_ENV !== 'development') return
   installed = true
 
   const methods: LogLevel[] = ['log', 'warn', 'error']
