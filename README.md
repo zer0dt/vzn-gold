@@ -1,14 +1,6 @@
 # VZN.gold
 
-> **Notice — `$VZN` origin updated (July 2026)**  
-> The on-chain origin for `$VZN` has changed because the deploy `decimals` field was wrong in the original token: it was set to **8** but should have been **0**. A corrected deploy was submitted on mainnet.
->
-> | | Origin ID |
-> |---|---|
-> | **Previous** (incorrect decimals) | `5716981d60affbf3b626ad3b7ac3f1d6c75b537d6db38dd0ccd6098f2dcd78f3_0` |
-> | **Current** (decimals = 0) | `ada22c904dfeba78459cc0a4a325f74d11cffce10217e1c838c219ea3e3a29e5_0` |
->
-> Update `NEXT_PUBLIC_LLM21_ORIGIN_ID` and `OVERLAY_TOPIC` in your `.env` / `.env.local` if you are still pointing at the old origin. The value in `.env.example` will be updated to match.
+
 
 `VZN.gold` is a social platform built around one core primitive: the `LockLikeMintBSV21Parallel` smart contract (see `src/contracts/LockLikeMintBSV21Parallel.ts`), aka `LLM-21`.
 
