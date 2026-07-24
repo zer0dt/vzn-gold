@@ -11,12 +11,11 @@ import {
   startOverlayMinterBeefPrefetch,
   takePrefetchedOverlayMinter,
 } from '@/app/lib/mint-prefetch';
+import { MINT_FUNDING_INPUT_HEADROOM_SATS } from '@/app/lib/mint-funding';
 
 type ToastFunction = typeof import('@/app/hooks/use-toast').toast;
 
-/** Extra sats required from funding inputs beyond (outputs − contract UTXO); pays miner fee + ARC relay floor (HTTP 465 below ~15k). */
-const MINT_FUNDING_INPUT_HEADROOM_SATS = 25_000;
-/** Same baseline as `app/api/sign-and-pay` / `unlockCoins` (100 sat/KB). If ARC returns fee-too-low, raise temporarily. */
+/** Same baseline as mint broadcast path. If ARC returns fee-too-low, raise temporarily. */
 const MINT_TX_FEE_PER_KB = 150;
 
 type OverlayMinterResponse = {
@@ -487,8 +486,8 @@ export async function handleConfirmLockAction(params: {
             return null;
           }
 
-          // The exact requirement adds only the contract's small non-lock outputs to this value.
-          // If that changes the selected coin, the exact-selection path below starts a replacement prefetch.
+          // Match prepared mint packs: lock + headroom. Service fee / dust are paid from
+          // headroom slack — do not inflate past an exact pack or we double-spend a second UTXO.
           const preliminaryRequiredSatoshis = Math.max(
             1,
             satsToLock + MINT_FUNDING_INPUT_HEADROOM_SATS
@@ -618,9 +617,12 @@ export async function handleConfirmLockAction(params: {
         timing: mintTiming(undefined, { mark: false }),
       });
       const outputSatoshis = builtTx.outputs.reduce((sum: number, output: any) => sum + output.satoshis, 0);
+      // Same target as Prepare UTXOs / preliminary select (lock + headroom). Adding
+      // service-fee/dust on top of headroom was overshooting exact packs by a few hundred sats
+      // and forcing a useless second funding input + large change.
       const requiredFundingSatoshis = Math.max(
         1,
-        outputSatoshis - fromUTXO.satoshis + MINT_FUNDING_INPUT_HEADROOM_SATS
+        satsToLock + MINT_FUNDING_INPUT_HEADROOM_SATS
       );
       const availableFundingUtxosResult = await availableFundingUtxosPromise;
       if ('error' in availableFundingUtxosResult) {

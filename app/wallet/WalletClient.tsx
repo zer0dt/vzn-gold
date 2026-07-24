@@ -29,6 +29,11 @@ import {
   retrieveTempPassword,
   clearTempPassword
 } from '@/app/lib/passkeys';
+import { useVznContractConfig } from '@/app/hooks/use-vzn-contract-config';
+import {
+  maxMintFundingSplitCount,
+  mintFundingOutputSatoshis,
+} from '@/app/lib/mint-funding';
 
 // Import the BackButton as a client component
 const BackButton = dynamic(() => import('@/app/components/BackButton'), { 
@@ -78,6 +83,7 @@ export default function WalletPage() {
     fetchDetailedBalance,
     isFetchingBalance,
     sendTransaction,
+    prepareMintFundingOutputs,
     isSending,
   } = useWallet();
 
@@ -94,6 +100,32 @@ export default function WalletPage() {
     stage: 'idle',
     selectedUtxos: [],
   });
+
+  // --- State for Prepare Mint UTXOs Dialog ---
+  const [isPrepareMintDialogOpen, setIsPrepareMintDialogOpen] = useState(false);
+  const [mintSplitCount, setMintSplitCount] = useState('1');
+  const [prepareMintProgress, setPrepareMintProgress] = useState<{
+    stage: 'idle' | 'building' | 'broadcasting' | 'completed';
+    txid?: string;
+  }>({ stage: 'idle' });
+  const {
+    contractSats,
+    isLoading: isContractConfigLoading,
+    isError: isContractConfigError,
+  } = useVznContractConfig(isPrepareMintDialogOpen);
+
+  const mintOutputSatoshis =
+    typeof contractSats === 'number' && contractSats > 0
+      ? mintFundingOutputSatoshis(contractSats)
+      : null;
+  const maxMintSplits =
+    mintOutputSatoshis !== null
+      ? maxMintFundingSplitCount(walletBalance, mintOutputSatoshis)
+      : 0;
+  const requestedMintSplits = (() => {
+    const parsed = parseInt(mintSplitCount.replace(/,/g, ''), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  })();
 
   // --- State for Wallet View Tabs ---
   const [activeWalletView, setActiveWalletView] = useState<'tokens' | 'details'>('details');
@@ -277,6 +309,60 @@ export default function WalletPage() {
     clearTempPassword();
     setShowWalletPasskeyPrompt(false);
     router.push('/');
+  };
+
+  const handlePrepareMintUtxos = async () => {
+    if (mintOutputSatoshis === null) {
+      toast({
+        variant: 'destructive',
+        description: 'Could not load contract lock amount',
+        duration: 2000,
+      });
+      return;
+    }
+    if (!Number.isInteger(requestedMintSplits) || requestedMintSplits < 1) {
+      toast({
+        variant: 'destructive',
+        description: 'Enter how many LLM UTXOs to create',
+        duration: 2000,
+      });
+      return;
+    }
+    if (requestedMintSplits > maxMintSplits) {
+      toast({
+        variant: 'destructive',
+        description: `Balance only covers ${maxMintSplits} LLM UTXO${maxMintSplits === 1 ? '' : 's'}`,
+        duration: 2500,
+      });
+      return;
+    }
+
+    try {
+      setPrepareMintProgress({ stage: 'building' });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      setPrepareMintProgress({ stage: 'broadcasting' });
+
+      const txid = await prepareMintFundingOutputs(mintOutputSatoshis, requestedMintSplits);
+      if (!txid) {
+        setPrepareMintProgress({ stage: 'idle' });
+        return;
+      }
+
+      setPrepareMintProgress({ stage: 'completed', txid });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      setIsPrepareMintDialogOpen(false);
+      setMintSplitCount('1');
+      setPrepareMintProgress({ stage: 'idle' });
+    } catch (error) {
+      console.error('Error preparing LLM funding UTXOs:', error);
+      setPrepareMintProgress({ stage: 'idle' });
+      toast({
+        variant: 'destructive',
+        title: 'Prepare failed',
+        description: `Could not prepare LLM UTXOs: ${(error as Error).message}`,
+        duration: 3000,
+      });
+    }
   };
 
   const handleSendBSV = async () => {
@@ -534,6 +620,7 @@ export default function WalletPage() {
                   isUpdatingProfile={isUpdatingProfile}
                   isSending={isSending}
                   setIsSendDialogOpen={setIsSendDialogOpen}
+                  setIsPrepareMintDialogOpen={setIsPrepareMintDialogOpen}
                   backupWallet={backupWallet}
                 />
               )}
@@ -541,6 +628,169 @@ export default function WalletPage() {
             </Tabs>
           </div>
         )}
+
+        {/* Prepare mint UTXOs dialog */}
+        <Dialog
+          open={isPrepareMintDialogOpen}
+          onOpenChange={(open) => {
+            if (prepareMintProgress.stage !== 'idle' && prepareMintProgress.stage !== 'completed') {
+              return;
+            }
+            setIsPrepareMintDialogOpen(open);
+            if (!open) {
+              setPrepareMintProgress({ stage: 'idle' });
+            }
+          }}
+        >
+          <DialogContent className="max-w-[420px] rounded-2xl z-[200] border border-border/60 bg-background/95 p-0 backdrop-blur-xl shadow-[0_0_0_1px_rgba(245,158,11,0.2),0_20px_50px_-20px_rgba(0,0,0,0.55)]">
+            <div className="p-6">
+              <DialogHeader className="pb-4">
+                <DialogTitle className="font-vzn-headings text-2xl font-normal tracking-tight">
+                  Prepare <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FBBF24] via-[#F59E0B] to-[#FBBF24]">LLM</span> UTXOs
+                </DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  Split your balance into funding UTXOs for LockLikeMints
+                  {mintOutputSatoshis !== null
+                    ? ` — ${mintOutputSatoshis.toLocaleString()} sats each.`
+                    : isContractConfigLoading
+                      ? '…'
+                      : '.'}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-5">
+                {isContractConfigError && (
+                  <p className="text-sm text-destructive">
+                    Failed to load contract settings. Close and try again.
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="mintSplitCount"
+                    className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground"
+                  >
+                    How many
+                  </Label>
+                  <Input
+                    id="mintSplitCount"
+                    inputMode="numeric"
+                    placeholder="e.g. 5"
+                    value={mintSplitCount}
+                    onChange={(e) => {
+                      const rawValue = e.target.value.replace(/[^\d]/g, '');
+                      setMintSplitCount(rawValue ? parseInt(rawValue, 10).toLocaleString() : '');
+                    }}
+                    type="text"
+                    className="h-11 rounded-xl border-border/70 bg-background/70 text-base sm:text-sm backdrop-blur focus-visible:border-amber-400/60 focus-visible:ring-amber-400/30"
+                    disabled={prepareMintProgress.stage !== 'idle' || isContractConfigLoading}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (maxMintSplits > 0) {
+                          setMintSplitCount(String(maxMintSplits));
+                        }
+                      }}
+                      disabled={
+                        prepareMintProgress.stage !== 'idle' ||
+                        maxMintSplits <= 0
+                      }
+                      className="text-xs text-muted-foreground hover:text-amber-600 dark:hover:text-amber-300 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:hover:text-muted-foreground"
+                    >
+                      Use max ({maxMintSplits || '…'})
+                    </button>
+                  </div>
+                </div>
+
+                {prepareMintProgress.stage !== 'idle' && (
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4 backdrop-blur space-y-2">
+                    {[
+                      { stage: 'building', label: 'Building transaction' },
+                      { stage: 'broadcasting', label: 'Broadcasting' },
+                      { stage: 'completed', label: 'Done' },
+                    ].map((step) => {
+                      const order = ['building', 'broadcasting', 'completed'] as const;
+                      const currentIndex = order.indexOf(prepareMintProgress.stage as typeof order[number]);
+                      const stepIndex = order.indexOf(step.stage as typeof order[number]);
+                      const isActive = prepareMintProgress.stage === step.stage;
+                      const isDone = currentIndex > stepIndex;
+                      return (
+                        <div
+                          key={step.stage}
+                          className={`flex items-center gap-3 p-2 rounded-lg ${
+                            isActive
+                              ? 'bg-amber-400/10 text-amber-700 dark:text-amber-300'
+                              : isDone
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                : 'text-muted-foreground'
+                          }`}
+                        >
+                          <span className="text-sm font-medium">{step.label}</span>
+                          {isActive && prepareMintProgress.stage !== 'completed' && (
+                            <Loader2 className="w-3 h-3 animate-spin ml-auto" />
+                          )}
+                        </div>
+                      );
+                    })}
+                    {prepareMintProgress.stage === 'completed' && prepareMintProgress.txid && (
+                      <p className="text-xs font-mono text-emerald-600 dark:text-emerald-400 pt-1">
+                        TXID: {prepareMintProgress.txid.substring(0, 12)}...
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-border/60 bg-background/60 backdrop-blur rounded-b-2xl">
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPrepareMintDialogOpen(false);
+                    setPrepareMintProgress({ stage: 'idle' });
+                  }}
+                  disabled={
+                    prepareMintProgress.stage !== 'idle' &&
+                    prepareMintProgress.stage !== 'completed'
+                  }
+                  className="flex-1 rounded-full border border-border/70 bg-background/60 px-6 py-3 text-sm font-medium text-foreground backdrop-blur transition-colors hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-60"
+                >
+                  {prepareMintProgress.stage === 'completed' ? 'Close' : 'Cancel'}
+                </button>
+                {prepareMintProgress.stage !== 'completed' && (
+                  <button
+                    type="button"
+                    onClick={handlePrepareMintUtxos}
+                    disabled={
+                      prepareMintProgress.stage !== 'idle' ||
+                      isSending ||
+                      isContractConfigLoading ||
+                      mintOutputSatoshis === null ||
+                      !Number.isInteger(requestedMintSplits) ||
+                      requestedMintSplits < 1 ||
+                      requestedMintSplits > maxMintSplits
+                    }
+                    className="group relative flex-1 inline-flex items-center justify-center gap-2 overflow-hidden rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 px-6 py-3 text-sm font-semibold text-black shadow-[0_10px_30px_-10px_rgba(245,158,11,0.55)] transition-all hover:scale-[1.01] hover:shadow-[0_14px_40px_-10px_rgba(245,158,11,0.75)] disabled:pointer-events-none disabled:opacity-60"
+                  >
+                    <span className="relative flex items-center justify-center gap-2">
+                      {prepareMintProgress.stage === 'idle' ? (
+                        'Create UTXOs'
+                      ) : (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Processing…</span>
+                        </>
+                      )}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Send BSV Dialog - Available for both tabs */}
         <Dialog open={isSendDialogOpen} onOpenChange={setIsSendDialogOpen}>

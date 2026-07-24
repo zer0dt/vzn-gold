@@ -1,4 +1,8 @@
 import { bsv } from 'scrypt-ts';
+import {
+  estimateMintFundingSplitFeeSats,
+  MAX_MINT_FUNDING_SPLIT_COUNT,
+} from '@/app/lib/mint-funding';
 
 const P2PKH_SIGSCRIPT_SIZE = 1 + 73 + 1 + 33;
 // Estimated miner fee rate. Expressed in satoshis per kilobyte for historical reasons.
@@ -139,9 +143,10 @@ export const selectPaymentUTXOs = (
     return utxos.filter((u) => u.satoshis > 1).map(toOutput);
   }
 
-  const minSingle = amount + 2;
+  const minSingle = amount;
   // Prefer the smallest UTXO that still covers `amount` (avoids spending a huge coin when
-  // several smaller outputs — e.g. test splits — would suffice).
+  // several smaller outputs — e.g. mint funding packs — would suffice).
+  // Exact match is allowed: mint packs are sized to lock + headroom with no +2 pad.
   const singleCoverCandidates = utxos.filter((u) => u.satoshis > 1 && u.satoshis >= minSingle);
   const smallestConfirmedCover = singleCoverCandidates
     .filter((u) => u.confirmed)
@@ -299,6 +304,104 @@ export const sendBSV = async (satoshis: number, toAddress: string, fromAddress: 
     console.log(e);
     throw e;
   }
+};
+
+/**
+ * Split payment UTXOs into `count` equal outputs sized for LOCKLIKEMINT funding
+ * (`contractSats + headroom`). Sends back to the same payment address and returns change.
+ * Prefers largest inputs so existing mint-sized packs are not spent first.
+ */
+export const splitForMintFunding = async (
+  address: string,
+  outputSatoshis: number,
+  count: number
+): Promise<string> => {
+  if (!address) {
+    throw new Error('Missing payment address');
+  }
+  if (!Number.isInteger(outputSatoshis) || outputSatoshis <= 0) {
+    throw new Error('Invalid mint funding output size');
+  }
+  if (!Number.isInteger(count) || count < 1 || count > MAX_MINT_FUNDING_SPLIT_COUNT) {
+    throw new Error(`Count must be between 1 and ${MAX_MINT_FUNDING_SPLIT_COUNT}`);
+  }
+
+  const availableUtxos = await fetchAvailablePaymentUTXOs(address);
+  const candidates = availableUtxos
+    .filter((utxo) => utxo.satoshis > 1)
+    .sort((a, b) => b.satoshis - a.satoshis);
+
+  const targetOutputs = outputSatoshis * count;
+  const selected: NormalizedUtxo[] = [];
+  let inputTotal = 0;
+
+  for (const utxo of candidates) {
+    selected.push(utxo);
+    inputTotal += utxo.satoshis;
+    // Assume change output while selecting so we do not underfund the fee.
+    const fee = estimateMintFundingSplitFeeSats(selected.length, count + 1);
+    if (inputTotal >= targetOutputs + fee) {
+      break;
+    }
+  }
+
+  if (selected.length === 0) {
+    throw new Error('No spendable payment UTXOs found');
+  }
+
+  let fee = estimateMintFundingSplitFeeSats(selected.length, count + 1);
+  if (inputTotal < targetOutputs + fee) {
+    throw new Error(
+      `Insufficient funds: need at least ${(targetOutputs + fee).toLocaleString()} sats for ${count} mint UTXO${count === 1 ? '' : 's'}`
+    );
+  }
+
+  let change = inputTotal - targetOutputs - fee;
+  // If change is zero, drop the assumed change output and recompute fee.
+  if (change === 0) {
+    fee = estimateMintFundingSplitFeeSats(selected.length, count);
+    change = inputTotal - targetOutputs - fee;
+  }
+
+  const scriptHex = bsv.Script.fromAddress(bsv.Address.fromString(address)).toHex();
+  const bsvtx = new bsv.Transaction();
+  bsvtx.from(
+    selected.map((utxo) => ({
+      script: scriptHex,
+      satoshis: utxo.satoshis,
+      txId: utxo.txid,
+      outputIndex: utxo.vout,
+    }))
+  );
+
+  for (let i = 0; i < count; i += 1) {
+    bsvtx.to(address, outputSatoshis);
+  }
+
+  if (change > 0) {
+    bsvtx.to(address, change);
+  } else if (change < 0) {
+    throw new Error('Insufficient funds after fee calculation');
+  }
+
+  const activeWif = sessionStorage.getItem('walletKey');
+  if (!activeWif) {
+    throw new Error('Active wallet key not found in sessionStorage');
+  }
+  bsvtx.sign(bsv.PrivateKey.fromWIF(activeWif));
+
+  console.log('[wallet-payment] splitForMintFunding', {
+    address,
+    outputSatoshis,
+    count,
+    inputCount: selected.length,
+    inputTotal,
+    fee,
+    change,
+    txid: bsvtx.id,
+  });
+
+  return broadcast(bsvtx.toString());
 };
 
 export const newPK = () => {

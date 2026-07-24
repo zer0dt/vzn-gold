@@ -222,6 +222,10 @@ interface WalletActions {
   fetchDetailedBalance: () => Promise<void>; // NEW: Fetch confirmed and unconfirmed balance
   createWallet: (name: string) => Promise<{ success: boolean; restoredInfo?: RestoredWalletInfo }>;
   sendTransaction: (amount: number, address: string) => Promise<string | null>;
+  prepareMintFundingOutputs: (
+    outputSatoshis: number,
+    count: number
+  ) => Promise<string | null>;
   backupWallet: (filename: string) => void;
   copyToClipboard: (text: string) => Promise<void>;
   calculateUSDValue: (sats: number) => string;
@@ -768,6 +772,54 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       }
     },
     [isWalletInitialized, fetchDetailedBalance, toast, walletAddress] // Added walletAddress dependency
+  );
+
+  const prepareMintFundingOutputs = useCallback(
+    async (outputSatoshis: number, count: number): Promise<string | null> => {
+      if (!isWalletInitialized) {
+        toast({ variant: 'destructive', description: 'Wallet not initialized', duration: 1000 });
+        return null;
+      }
+      if (!walletAddress) {
+        toast({ variant: 'destructive', description: 'Payment address unavailable', duration: 1000 });
+        return null;
+      }
+      if (!Number.isInteger(outputSatoshis) || outputSatoshis <= 0) {
+        toast({ variant: 'destructive', description: 'Invalid mint funding size', duration: 1000 });
+        return null;
+      }
+      if (!Number.isInteger(count) || count < 1) {
+        toast({ variant: 'destructive', description: 'Choose at least one mint UTXO', duration: 1000 });
+        return null;
+      }
+
+      console.log('Preparing mint funding outputs', { outputSatoshis, count, walletAddress });
+      setIsSending(true);
+      try {
+        const { splitForMintFunding } = await loadWalletPayment();
+        const txid = await splitForMintFunding(walletAddress, outputSatoshis, count);
+        if (txid) {
+          await fetchDetailedBalance();
+          toast({
+            description: `Created ${count} LLM funding UTXO${count === 1 ? '' : 's'}: ${txid.substring(0, 8)}...`,
+            duration: 2500,
+          });
+          return txid;
+        }
+        return null;
+      } catch (error) {
+        console.error('Prepare LLM funding error:', error);
+        toast({
+          variant: 'destructive',
+          description: `Failed to prepare LLM UTXOs: ${(error as ErrorWithMessage).toString()}`,
+          duration: 2500,
+        });
+        return null;
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [isWalletInitialized, fetchDetailedBalance, toast, walletAddress]
   );
 
   const backupWallet = useCallback((filename: string) => {
@@ -1601,6 +1653,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
     fetchDetailedBalance,
     createWallet,
     sendTransaction,
+    prepareMintFundingOutputs,
     backupWallet,
     copyToClipboard,
     calculateUSDValue,

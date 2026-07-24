@@ -1,3 +1,5 @@
+import { MINT_FUNDING_INPUT_HEADROOM_SATS } from '@/app/lib/mint-funding';
+
 const LOG_PREFIX = '[mint-prefetch]';
 const PENDING_MINT_FUNDING_UTXOS_KEY = 'pendingMintFundingOutpoints';
 const PENDING_MINT_CONTRACT_UTXOS_KEY = 'pendingMintContractOutpoints';
@@ -5,7 +7,6 @@ const PENDING_MINT_FUNDING_TTL_MS = 2 * 60 * 1000;
 const CLIENT_MINTER_CACHE_TTL_MS = 45_000;
 const CLIENT_PARENT_BEEF_CACHE_TTL_MS = 60_000;
 const CLIENT_FUNDING_CACHE_TTL_MS = 45_000;
-const MINT_FUNDING_INPUT_HEADROOM_SATS = 25_000;
 
 type PendingMintReservation = {
   key: string;

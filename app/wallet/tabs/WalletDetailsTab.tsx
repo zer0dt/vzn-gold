@@ -22,6 +22,7 @@ export type WalletDetailsTabProps = {
   isUpdatingProfile: boolean;
   isSending: boolean;
   setIsSendDialogOpen: (open: boolean) => void;
+  setIsPrepareMintDialogOpen: (open: boolean) => void;
   backupWallet: (filename: string) => void | Promise<void>;
 };
 
@@ -39,6 +40,7 @@ export default function WalletDetailsTab(props: WalletDetailsTabProps) {
     isUpdatingProfile,
     isSending,
     setIsSendDialogOpen,
+    setIsPrepareMintDialogOpen,
     backupWallet,
   } = props;
 
@@ -226,6 +228,15 @@ export default function WalletDetailsTab(props: WalletDetailsTabProps) {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : null}
               Send
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full border-border/70 bg-background/60 backdrop-blur transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 hover:text-amber-600 dark:hover:text-amber-300"
+              onClick={() => setIsPrepareMintDialogOpen(true)}
+              disabled={isUpdatingProfile || isFetchingBalance || isSending || walletBalance <= 0}
+              title="Split balance into funding UTXOs for LLMs"
+            >
+              Prepare UTXOs
             </Button>
             <Button
               variant="outline"
