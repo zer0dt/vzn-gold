@@ -13,7 +13,6 @@ import { ClientPost } from '@/app/components/ClientPost'
 import { ScrollToTop } from '@/app/components/ScrollToTop'
 import { ArrowLeft } from 'lucide-react'
 import TxPageTitle from './TxPageTitle'
-import PostMintStats from './PostMintStats'
 
 // Import the BackButton as a client component
 const BackButton = NextDynamic(() => import('@/app/components/BackButton'), { 
@@ -121,15 +120,6 @@ async function PostWithData({ txid }: { txid: string }) {
           <ClientPost post={post} />
         </HydrationBoundary>
       </Suspense>
-
-      <div className="px-4 mt-6">
-        <PostMintStats
-          txid={txid}
-          initialLikeCount={Array.isArray(post.likes) ? post.likes.length : 0}
-          initialLikes={Array.isArray(post.likes) ? post.likes : []}
-          postAuthorUserId={post.user_id ?? null}
-        />
-      </div>
     </div>
   )
 }
